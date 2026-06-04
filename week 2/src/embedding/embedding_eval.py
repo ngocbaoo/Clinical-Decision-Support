@@ -83,12 +83,14 @@ def evaluate_model(model_name: str, sample: list[dict]) -> dict:
 
 
 def write_report_section(results: list[dict], chosen: str) -> None:
-    lines = [
+    header = [
         "# RAG Knowledge Base — Evaluation Report",
         f"**Date:** {time.strftime('%Y-%m-%d')}",
         "**Indexing model:** qwen/qwen3-embedding-8b (via OpenRouter)",
         "**Vector DB:** ChromaDB",
         "",
+    ]
+    section1 = [
         "## 1. Embedding Model Comparison (Task 1.5)",
         "",
         f"Sample: {SAMPLE_SIZE} chunks · {len(TEST_CASES)} cross-lingual test queries.",
@@ -97,19 +99,28 @@ def write_report_section(results: list[dict], chosen: str) -> None:
         "|-------|-------|-----------|------------|",
     ]
     for r in results:
-        lines.append(
+        section1.append(
             f"| {r['model']} | {r['hit_at_1']}/{r['total']} | "
             f"{r['avg_score']:.3f} | {r['load_time']:.1f}s |"
         )
-    lines += [
+    section1 += [
         "",
         f"**Decision:** indexing uses `qwen/qwen3-embedding-8b` "
-        f"(higher/›= Hit@1 was `{chosen}`; qwen3 chosen for the pipeline by project "
-        f"decision regardless).",
+        f"(higher Hit@1 was `{chosen}`; qwen3 is used for the pipeline regardless).",
         "",
     ]
+
+    # Preserve Sections 2+ if a full report already exists.
+    tail = ""
+    if REPORT_FILE.exists():
+        existing = REPORT_FILE.read_text(encoding="utf-8")
+        idx = existing.find("## 2.")
+        if idx != -1:
+            tail = existing[idx:]
+
     REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_FILE.write_text("\n".join(lines), encoding="utf-8")
+    body = "\n".join(header + section1)
+    REPORT_FILE.write_text(body + (tail if tail else ""), encoding="utf-8")
     print(f"\nWrote report Section 1 -> {REPORT_FILE}")
 
 
