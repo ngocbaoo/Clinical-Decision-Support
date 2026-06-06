@@ -1,5 +1,5 @@
 .env
 __pycache__/
 *.pyc
-week_2/chroma_db/
-week_2/db/
+chroma_db/
+db/
