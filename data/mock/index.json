@@ -5,16 +5,34 @@
       "id": "pt-001",
       "name": "Nguyễn Văn An",
       "description": "Sốc nhiễm khuẩn từ viêm phổi, ICU. Dị ứng Penicillin (anaphylaxis), đầy đủ 13 vital/lab bất thường, vasopressor (Norepinephrine), đang dùng Vancomycin.",
-      "covers_scenarios": ["S-01", "S-02", "S-03", "S-04", "S-05"],
-      "edge_cases": ["high-criticality allergy", "all vitals abnormal", "multi-condition (ICD-10)"]
+      "covers_scenarios": [
+        "S-01",
+        "S-02",
+        "S-03",
+        "S-04",
+        "S-05"
+      ],
+      "edge_cases": [
+        "high-criticality allergy",
+        "all vitals abnormal",
+        "multi-condition (ICD-10)"
+      ]
     },
     {
       "file": "patient_B.json",
       "id": "pt-002",
       "name": "Trần Thị Bình",
       "description": "Suy thận cấp trên nền bệnh thận mạn + tăng kali máu, ICU. Creatinine báo bằng mg/dL và nhiệt độ bằng °F để test unit conversion.",
-      "covers_scenarios": ["S-02"],
-      "edge_cases": ["creatinine mg/dL -> umol/L", "temperature degF -> Celsius", "no allergies", "no procedures", "missing vital keys"]
+      "covers_scenarios": [
+        "S-02"
+      ],
+      "edge_cases": [
+        "creatinine mg/dL -> umol/L",
+        "temperature degF -> Celsius",
+        "no allergies",
+        "no procedures",
+        "missing vital keys"
+      ]
     },
     {
       "file": "patient_C.json",
@@ -22,7 +40,11 @@
       "name": "Lê Văn Cường",
       "description": "Hậu phẫu ổn định, theo dõi ICU. Toàn bộ vital trong giới hạn bình thường (NEWS2/qSOFA thấp). Hai dị ứng (Sulfonamides, Aspirin).",
       "covers_scenarios": [],
-      "edge_cases": ["all-normal baseline", "multiple allergies", "completed procedure"]
+      "edge_cases": [
+        "all-normal baseline",
+        "multiple allergies",
+        "completed procedure"
+      ]
     },
     {
       "file": "patient_D.json",
@@ -30,23 +52,41 @@
       "name": "Phạm Thị Dung",
       "description": "Hồ sơ tối thiểu: không có Encounter (test fallback), chỉ vài Observation và một Condition; không thuốc/thủ thuật/diagnostic report.",
       "covers_scenarios": [],
-      "edge_cases": ["no active encounter", "empty meds/admin/procedures/reports", "single condition"]
+      "edge_cases": [
+        "no active encounter",
+        "empty meds/admin/procedures/reports",
+        "single condition"
+      ]
     },
     {
       "file": "patient_E.json",
       "id": "pt-005",
       "name": "Trần Văn Em",
       "description": "ARDS / suy hô hấp cấp, thở máy + nằm sấp + an thần. Có đủ PaO2 và Bilirubin; GCS ghi dạng text (valueCodeableConcept).",
-      "covers_scenarios": ["S-03"],
-      "edge_cases": ["PaO2 + bilirubin labs", "GCS as valueCodeableConcept text", "infusion meds (Propofol/Fentanyl/Cisatracurium)", "effectivePeriod / performedPeriod"]
+      "covers_scenarios": [
+        "S-03"
+      ],
+      "edge_cases": [
+        "PaO2 + bilirubin labs",
+        "GCS as valueCodeableConcept text",
+        "infusion meds (Propofol/Fentanyl/Cisatracurium)",
+        "effectivePeriod / performedPeriod"
+      ]
     },
     {
       "file": "patient_F.json",
       "id": "pt-006",
       "name": "Lê Thị Phương",
       "description": "Nhồi máu cơ tim cấp + sốc tim, can thiệp PCI. Huyết áp ghi dạng component, một thuốc qua medicationReference.",
-      "covers_scenarios": ["S-03"],
-      "edge_cases": ["BP via component[] (systolic extraction)", "medicationReference.display", "emergency encounter class", "performedPeriod with end"]
+      "covers_scenarios": [
+        "S-03"
+      ],
+      "edge_cases": [
+        "BP via component[] (systolic extraction)",
+        "medicationReference.display",
+        "emergency encounter class",
+        "performedPeriod with end"
+      ]
     },
     {
       "file": "patient_G.json",
@@ -54,10 +94,140 @@
       "name": "Phạm Văn Giang",
       "description": "Suy gan cấp trên nền mạn + bệnh não gan, rối loạn đông máu. Bilirubin cao, tiểu cầu thấp.",
       "covers_scenarios": [],
-      "edge_cases": ["allergy coding-only (no text)", "SNOMED-coded condition (ICD-10 fallback)", "high bilirubin / low platelet", "effectivePeriod admin"]
+      "edge_cases": [
+        "allergy coding-only (no text)",
+        "SNOMED-coded condition (ICD-10 fallback)",
+        "high bilirubin / low platelet",
+        "effectivePeriod admin"
+      ]
+    },
+    {
+      "file": "patient_H.json",
+      "id": "pt-008",
+      "name": "Hoàng Thị Hoa",
+      "description": "Hậu phẫu cắt túi mật, ICU. Toàn bộ vital/lab bình thường (baseline #2).",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "all-normal baseline",
+        "name family/given only (no text)",
+        "DiagnosticReport via issued"
+      ]
+    },
+    {
+      "file": "patient_I.json",
+      "id": "pt-009",
+      "name": "Vũ Đình Inh",
+      "description": "Đợt cấp COPD ở người cao tuổi, vital gần bình thường.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "condition severity field",
+        "encounter serviceType via coding (no text)"
+      ]
+    },
+    {
+      "file": "patient_J.json",
+      "id": "pt-010",
+      "name": "Đỗ Gia Kiệt",
+      "description": "Bệnh nhi (7 tuổi), viêm tiểu phế quản, vital nhi bình thường.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "pediatric age calc",
+        "pediatric normal vitals",
+        "no allergies"
+      ]
+    },
+    {
+      "file": "patient_K.json",
+      "id": "pt-011",
+      "name": "Bùi Thị Lan",
+      "description": "Cụ bà ~98 tuổi, nhiễm khuẩn tiết niệu.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "very elderly age calc",
+        "mild sepsis derangement"
+      ]
+    },
+    {
+      "file": "patient_L.json",
+      "id": "pt-012",
+      "name": "Trương Văn M",
+      "description": "Hồ sơ tối thiểu tuyệt đối: chỉ có Patient, không birthDate (age None).",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "only Patient resource",
+        "no birthDate -> age None",
+        "name parts only",
+        "every section empty"
+      ]
+    },
+    {
+      "file": "patient_M.json",
+      "id": "pt-013",
+      "name": "Ngô Bá Năng",
+      "description": "Có vital + thuốc nhưng KHÔNG có Condition (empty conditions).",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "empty conditions",
+        "medication without dosageInstruction",
+        "observation timestamp via issued"
+      ]
+    },
+    {
+      "file": "patient_N.json",
+      "id": "pt-014",
+      "name": "Lý Thị Oanh",
+      "description": "Đa dị ứng (thuốc/thức ăn/môi trường); một dị ứng không có reaction.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "multiple allergy categories",
+        "allergy without reaction",
+        "criticality unable-to-assess"
+      ]
+    },
+    {
+      "file": "patient_O.json",
+      "id": "pt-015",
+      "name": "Phan Văn Phú",
+      "description": "Toan ceton đái tháo đường; creatinine mg/dL + nhiệt độ °F (unit conversion).",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "creatinine mg/dL -> umol/L",
+        "temperature degF -> Celsius",
+        "low GCS",
+        "hyponatremia"
+      ]
+    },
+    {
+      "file": "patient_P.json",
+      "id": "pt-016",
+      "name": "Tạ Thị Quỳnh",
+      "description": "Co giật, ED resus. SpO2 lặp hai mốc thời gian + một observation thiếu value.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "duplicate observation (keep latest)",
+        "value-less observation skipped",
+        "emergency encounter class"
+      ]
+    },
+    {
+      "file": "patient_Q.json",
+      "id": "pt-017",
+      "name": "Hồ Văn Sơn",
+      "description": "Suy đa tạng, toàn bộ chỉ số nguy kịch (boundary/extreme case).",
+      "covers_scenarios": [
+        "S-03",
+        "S-05"
+      ],
+      "edge_cases": [
+        "extreme deranged vitals/labs",
+        "BP via component",
+        "ICD-10 in coding[1]",
+        "procedure without bodySite",
+        "medicationReference"
+      ]
     }
   ],
-  "total_patients": 7,
+  "total_patients": 17,
   "generated_at": "2026-06-04",
   "fhir_version": "R4"
 }

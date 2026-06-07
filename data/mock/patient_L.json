@@ -1,0 +1,21 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-012",
+        "name": [
+          {
+            "family": "Trương",
+            "given": [
+              "Văn M"
+            ]
+          }
+        ],
+        "gender": "unknown"
+      }
+    }
+  ]
+}

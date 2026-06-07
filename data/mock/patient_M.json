@@ -1,0 +1,178 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-013",
+        "name": [
+          {
+            "text": "Ngô Bá Năng"
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1980-07-07"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-013",
+        "status": "in-progress",
+        "class": {
+          "code": "IMP",
+          "display": "inpatient encounter"
+        },
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "serviceType": {
+          "text": "ICU"
+        },
+        "period": {
+          "start": "2026-06-04T03:00:00"
+        },
+        "reasonCode": [
+          {
+            "text": "Observation"
+          }
+        ],
+        "location": [
+          {
+            "location": {
+              "display": "ICU Phòng 3 Giường 1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-m-0",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "issued": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 97,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-m-1",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "issued": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 82,
+          "unit": "/min",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-m-2",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "9279-1",
+              "display": "Respiratory rate"
+            }
+          ]
+        },
+        "issued": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 16,
+          "unit": "/min",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-m-3",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2160-0",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "issued": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 84,
+          "unit": "umol/L",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-m1",
+        "status": "active",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "medicationCodeableConcept": {
+          "text": "Normal saline 0.9%"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-m1",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-013"
+        },
+        "code": {
+          "text": "Basic Metabolic Panel"
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    }
+  ]
+}

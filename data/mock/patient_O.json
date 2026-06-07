@@ -1,0 +1,509 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-015",
+        "name": [
+          {
+            "text": "Phan Văn Phú"
+          }
+        ],
+        "gender": "male",
+        "birthDate": "1962-05-19"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-015",
+        "status": "in-progress",
+        "class": {
+          "code": "IMP",
+          "display": "inpatient encounter"
+        },
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "serviceType": {
+          "text": "ICU"
+        },
+        "period": {
+          "start": "2026-06-03T23:00:00"
+        },
+        "reasonCode": [
+          {
+            "text": "Diabetic ketoacidosis"
+          }
+        ],
+        "location": [
+          {
+            "location": {
+              "display": "ICU Phòng 4 Giường 2"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-0",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "59408-5",
+              "display": "Oxygen saturation"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 98,
+          "unit": "%",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-1",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8867-4",
+              "display": "Heart rate"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 76,
+          "unit": "/min",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-2",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "9279-1",
+              "display": "Respiratory rate"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 14,
+          "unit": "/min",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-3",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8480-6",
+              "display": "Systolic blood pressure"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 120,
+          "unit": "mmHg",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-4",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8462-4",
+              "display": "Diastolic blood pressure"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 76,
+          "unit": "mmHg",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-5",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "8310-5",
+              "display": "Body temperature"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 101.3,
+          "unit": "[degF]",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-6",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "9267-6",
+              "display": "Glasgow coma score total"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {
+          "value": 8,
+          "unit": "{score}",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-7",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2160-0",
+              "display": "Creatinine"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 2.4,
+          "unit": "mg/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-8",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "32693-4",
+              "display": "Lactate"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 1.0,
+          "unit": "mmol/L",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-9",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "26464-8",
+              "display": "Leukocytes"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 7.0,
+          "unit": "10*3/uL",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-10",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "777-3",
+              "display": "Platelets"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 240,
+          "unit": "10*3/uL",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-11",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "718-7",
+              "display": "Hemoglobin"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 14.0,
+          "unit": "g/dL",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-12",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2823-3",
+              "display": "Potassium"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 4.1,
+          "unit": "mmol/L",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-o-13",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2951-2",
+              "display": "Sodium"
+            }
+          ]
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {
+          "value": 125,
+          "unit": "mmol/L",
+          "system": "http://unitsofmeasure.org"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-o1",
+        "status": "active",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "medicationCodeableConcept": {
+          "text": "Insulin regular"
+        },
+        "dosageInstruction": [
+          {
+            "route": {
+              "coding": [
+                {
+                  "display": "Intravenous infusion"
+                }
+              ]
+            },
+            "timing": {
+              "code": {
+                "text": "truyền liên tục"
+              }
+            },
+            "doseAndRate": [
+              {
+                "doseQuantity": {
+                  "value": 0.1,
+                  "unit": "IU/kg/h"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-o1",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "clinicalStatus": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+              "code": "active"
+            }
+          ]
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "http://hl7.org/fhir/sid/icd-10",
+              "code": "N17.0",
+              "display": "Acute kidney failure with tubular necrosis"
+            }
+          ],
+          "text": "Suy thận cấp hoại tử ống thận"
+        },
+        "onsetDateTime": "2026-06-03T20:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationAdministration",
+        "id": "ma-o1",
+        "status": "completed",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "medicationCodeableConcept": {
+          "text": "Insulin regular"
+        },
+        "dosage": {
+          "dose": {
+            "value": 6,
+            "unit": "IU"
+          },
+          "route": {
+            "coding": [
+              {
+                "display": "Intravenous"
+              }
+            ]
+          }
+        },
+        "effectivePeriod": {
+          "start": "2026-06-04T07:00:00"
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-o1",
+        "status": "final",
+        "subject": {
+          "reference": "Patient/pt-015"
+        },
+        "code": {
+          "text": "Arterial Blood Gas"
+        },
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    }
+  ]
+}
