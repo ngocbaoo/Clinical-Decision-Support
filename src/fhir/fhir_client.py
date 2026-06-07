@@ -90,14 +90,58 @@ class FHIRClient:
     def __init__(self, patient_id: str):
         self.patient_id = patient_id
         self.encounter_id = None          # set after Encounter query
+        # Mock mode: when _mock_mode is set, resources are served from a local
+        # FHIR Bundle (see from_file) instead of HTTP.
+        self._mock_mode = False
+        self._bundle = None
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/fhir+json"})
         self.db = sqlite3.connect(DB_PATH)
         self.missing_resources = []
 
+    @classmethod
+    def from_file(cls, filepath: str) -> "FHIRClient":
+        """Load patient data from a FHIR Bundle JSON file (replaces HTTP)."""
+        with open(filepath, encoding="utf-8") as f:
+            bundle = json.load(f)
+
+        patient_id = None
+        for entry in bundle.get("entry", []):
+            r = entry.get("resource", {})
+            if r.get("resourceType") == "Patient":
+                patient_id = r.get("id")
+                break
+
+        client = cls(patient_id or "mock-patient")
+        client._bundle = bundle
+        client._mock_mode = True
+        return client
+
     # ---- low-level helpers -------------------------------------------------
+    def _get_mock(self, path: str) -> dict:
+        """Serve a resource from the loaded Bundle, filtered by resourceType.
+
+        Search paths (e.g. "Observation") return a Bundle of all matching
+        resources; read paths (e.g. "Patient/<id>") return the single resource,
+        matching how the live sandbox responds to each shape.
+        """
+        parts = path.split("/")
+        resource_type = parts[0]
+        matches = [
+            e["resource"] for e in self._bundle.get("entry", [])
+            if e.get("resource", {}).get("resourceType") == resource_type
+        ]
+        if len(parts) > 1:  # read by id, e.g. Patient/pt-001 -> bare resource
+            for r in matches:
+                if r.get("id") == parts[1]:
+                    return r
+            return matches[0] if matches else {}
+        return {"resourceType": "Bundle", "entry": [{"resource": r} for r in matches]}
+
     def _get(self, path: str, params: dict = None) -> dict:
         """GET with 10s timeout + 1 retry. Never raises; returns {} on failure."""
+        if self._mock_mode:
+            return self._get_mock(path)
         url = f"{self.BASE_URL}/{path}"
         for attempt in range(2):
             try:
@@ -284,12 +328,13 @@ class FHIRClient:
                 value, unit = round(value * 88.4, 1), "µmol/L"
             elif key == "temperature" and unit and unit.lower() in ("[degf]", "degf", "f"):
                 value, unit = round((value - 32) * 5 / 9, 1), "°C"
+            label = self._lookup_loinc(code)
             result[key] = {
                 "value": value,
                 "unit": unit,
                 "timestamp": ts,
                 "loinc": code,
-                "name": self._lookup_loinc(code),
+                "name": key if label == code else label,
             }
 
         found = sum(1 for v in result.values() if v["value"] is not None)
@@ -548,7 +593,8 @@ def print_context(ctx: dict):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="FHIR R4 patient profile builder")
-    parser.add_argument("--patient", help="patient id to query")
+    parser.add_argument("--patient", help="FHIR Patient ID from the live sandbox")
+    parser.add_argument("--file", help="load from a local FHIR Bundle JSON file")
     parser.add_argument("--find", action="store_true",
                         help="list sandbox patient IDs and exit")
     parser.add_argument("--json", action="store_true",
@@ -559,10 +605,12 @@ if __name__ == "__main__":
         find_patients()
         sys.exit(0)
 
-    if not args.patient:
-        parser.error("--patient is required (or use --find)")
-
-    client = FHIRClient(args.patient)
+    if args.file:
+        client = FHIRClient.from_file(args.file)
+    elif args.patient:
+        client = FHIRClient(args.patient)
+    else:
+        parser.error("need --patient or --file (or --find)")
     context = client.build_patient_context()
 
     if args.json:

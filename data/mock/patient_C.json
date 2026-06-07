@@ -1,0 +1,299 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-003",
+        "name": [{"text": "Lê Văn Cường", "family": "Lê", "given": ["Văn Cường"]}],
+        "gender": "male",
+        "birthDate": "1970-11-02"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AllergyIntolerance",
+        "id": "allergy-002",
+        "patient": {"reference": "Patient/pt-003"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", "code": "active"}]},
+        "criticality": "high",
+        "code": {"coding": [{"display": "Sulfonamides"}], "text": "Sulfonamides"},
+        "category": ["medication"],
+        "reaction": [{"manifestation": [{"coding": [{"display": "Stevens-Johnson syndrome"}]}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AllergyIntolerance",
+        "id": "allergy-003",
+        "patient": {"reference": "Patient/pt-003"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", "code": "active"}]},
+        "criticality": "low",
+        "code": {"coding": [{"display": "Aspirin"}], "text": "Aspirin"},
+        "category": ["medication"],
+        "reaction": [{"manifestation": [{"coding": [{"display": "Urticaria"}]}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-003",
+        "status": "in-progress",
+        "class": {"code": "IMP", "display": "inpatient encounter"},
+        "subject": {"reference": "Patient/pt-003"},
+        "serviceType": {"text": "ICU"},
+        "period": {"start": "2026-06-03T14:00:00"},
+        "reasonCode": [{"text": "Post-operative monitoring"}],
+        "location": [{"location": {"display": "ICU Phòng 2 Giường 1"}}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-spo2-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "59408-5", "display": "Oxygen saturation"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 97, "unit": "%", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hr-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 78, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-rr-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9279-1", "display": "Respiratory rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 16, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-sbp-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6", "display": "Systolic blood pressure"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 122, "unit": "mmHg", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-dbp-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8462-4", "display": "Diastolic blood pressure"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 78, "unit": "mmHg", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-temp-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 36.8, "unit": "Cel", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-gcs-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9267-6", "display": "Glasgow coma score total"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 15, "unit": "{score}", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-creat-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2160-0", "display": "Creatinine"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 88, "unit": "umol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-lactate-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "32693-4", "display": "Lactate"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 1.2, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-k-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2823-3", "display": "Potassium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 4.0, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-na-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2951-2", "display": "Sodium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 140, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-wbc-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "26464-8", "display": "Leukocytes"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 7.5, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-plt-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "777-3", "display": "Platelets"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 250, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hgb-003",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 13.5, "unit": "g/dL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-005",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "medicationCodeableConcept": {"text": "Paracetamol", "coding": [{"display": "Paracetamol 1g"}]},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 1, "unit": "g"}}],
+          "route": {"coding": [{"display": "Intravenous"}]},
+          "timing": {"code": {"text": "mỗi 6 giờ"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-006",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-003"},
+        "encounter": {"reference": "Encounter/enc-003"},
+        "medicationCodeableConcept": {"text": "Enoxaparin", "coding": [{"display": "Enoxaparin 40mg"}]},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 40, "unit": "mg"}}],
+          "route": {"coding": [{"display": "Subcutaneous"}]},
+          "timing": {"code": {"text": "mỗi 24 giờ"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-007",
+        "subject": {"reference": "Patient/pt-003"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "code": {
+          "coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "I10", "display": "Essential (primary) hypertension"}],
+          "text": "Tăng huyết áp"
+        },
+        "onsetDateTime": "2015-03-01"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationAdministration",
+        "id": "medadmin-004",
+        "status": "completed",
+        "subject": {"reference": "Patient/pt-003"},
+        "context": {"reference": "Encounter/enc-003"},
+        "medicationCodeableConcept": {"text": "Paracetamol"},
+        "effectiveDateTime": "2026-06-04T06:00:00",
+        "dosage": {
+          "dose": {"value": 1, "unit": "g"},
+          "route": {"coding": [{"display": "Intravenous"}]}
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-003",
+        "status": "completed",
+        "subject": {"reference": "Patient/pt-003"},
+        "code": {"coding": [{"display": "Appendectomy"}], "text": "Cắt ruột thừa"},
+        "performedDateTime": "2026-06-03T13:00:00",
+        "bodySite": [{"coding": [{"display": "Appendix"}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-004",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-003"},
+        "code": {"text": "Complete Blood Count"},
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    }
+  ]
+}

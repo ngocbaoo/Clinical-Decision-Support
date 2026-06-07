@@ -1,0 +1,39 @@
+{
+  "patients": [
+    {
+      "file": "patient_A.json",
+      "id": "pt-001",
+      "name": "Nguyễn Văn An",
+      "description": "Sốc nhiễm khuẩn từ viêm phổi, ICU. Dị ứng Penicillin (anaphylaxis), đầy đủ 13 vital/lab bất thường, vasopressor (Norepinephrine), đang dùng Vancomycin.",
+      "covers_scenarios": ["S-01", "S-02", "S-03", "S-04", "S-05"],
+      "edge_cases": ["high-criticality allergy", "all vitals abnormal", "multi-condition (ICD-10)"]
+    },
+    {
+      "file": "patient_B.json",
+      "id": "pt-002",
+      "name": "Trần Thị Bình",
+      "description": "Suy thận cấp trên nền bệnh thận mạn + tăng kali máu, ICU. Creatinine báo bằng mg/dL và nhiệt độ bằng °F để test unit conversion.",
+      "covers_scenarios": ["S-02"],
+      "edge_cases": ["creatinine mg/dL -> umol/L", "temperature degF -> Celsius", "no allergies", "no procedures", "missing vital keys"]
+    },
+    {
+      "file": "patient_C.json",
+      "id": "pt-003",
+      "name": "Lê Văn Cường",
+      "description": "Hậu phẫu ổn định, theo dõi ICU. Toàn bộ vital trong giới hạn bình thường (NEWS2/qSOFA thấp). Hai dị ứng (Sulfonamides, Aspirin).",
+      "covers_scenarios": [],
+      "edge_cases": ["all-normal baseline", "multiple allergies", "completed procedure"]
+    },
+    {
+      "file": "patient_D.json",
+      "id": "pt-004",
+      "name": "Phạm Thị Dung",
+      "description": "Hồ sơ tối thiểu: không có Encounter (test fallback), chỉ vài Observation và một Condition; không thuốc/thủ thuật/diagnostic report.",
+      "covers_scenarios": [],
+      "edge_cases": ["no active encounter", "empty meds/admin/procedures/reports", "single condition"]
+    }
+  ],
+  "total_patients": 4,
+  "generated_at": "2026-06-04",
+  "fhir_version": "R4"
+}
