@@ -18,11 +18,13 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-WEEK2_DIR = Path(__file__).resolve().parents[2]
-DATA_FILE = WEEK2_DIR / "data" / "quy_trinh_icu_vn.md"
-ICU2015_FILE = WEEK2_DIR / "data" / "icu_2015.md"
-TT51_FILE = WEEK2_DIR / "data" / "tt51_phan_ve.md"
-OUTPUT_FILE = WEEK2_DIR / "chunks" / "icu_chunks.json"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import DATA_DIR, CHUNKS_FILE  # noqa: E402
+
+DATA_FILE = DATA_DIR / "quy_trinh_icu_vn.md"
+ICU2015_FILE = DATA_DIR / "icu_2015.md"
+TT51_FILE = DATA_DIR / "tt51_phan_ve.md"
+OUTPUT_FILE = CHUNKS_FILE
 
 SOURCE = "Quy trình ICU — BYT VN 2014"
 ICU2015_SOURCE = "Hồi sức tích cực — BYT VN 2015"

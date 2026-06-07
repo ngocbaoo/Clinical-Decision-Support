@@ -14,12 +14,10 @@ from pathlib import Path
 
 import chromadb
 
-sys.path.insert(0, str(Path(__file__).parent))
-from or_client import EmbeddingClient, DEFAULT_MODEL  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import CHUNKS_FILE, CHROMA_PATH  # noqa: E402
+from embedding.or_client import EmbeddingClient, DEFAULT_MODEL  # noqa: E402
 
-WEEK2_DIR = Path(__file__).resolve().parents[2]
-CHUNKS_FILE = WEEK2_DIR / "chunks" / "icu_chunks.json"
-CHROMA_PATH = WEEK2_DIR / "chroma_db"
 COLLECTION_NAME = "clinical_knowledge"
 
 

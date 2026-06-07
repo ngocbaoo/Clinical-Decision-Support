@@ -16,7 +16,8 @@ from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-MOCK_DIR = Path(__file__).resolve().parents[2] / "data" / "mock"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import MOCK_DIR  # noqa: E402
 
 LOINC = {
     "spo2": ("59408-5", "Oxygen saturation", "%"),

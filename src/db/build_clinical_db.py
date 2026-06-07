@@ -23,10 +23,8 @@ if hasattr(sys.stdout, "reconfigure"):
 # ---------------------------------------------------------------------------
 # Paths (resolve relative to week 2/ regardless of CWD)
 # ---------------------------------------------------------------------------
-WEEK2_DIR = Path(__file__).resolve().parents[2]   # .../week 2
-DATA_DIR = WEEK2_DIR / "data"
-DB_DIR = WEEK2_DIR / "db"
-DB_PATH = DB_DIR / "clinical_db.sqlite"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import DATA_DIR, DB_DIR, DB_PATH  # noqa: E402
 
 LOINC_CSV = DATA_DIR / "loinc_icu_codes.csv"
 ICD10_MD = DATA_DIR / "icd-10_vn.md"

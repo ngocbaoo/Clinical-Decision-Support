@@ -29,9 +29,8 @@ from dateutil.relativedelta import relativedelta
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Resolve DB relative to the repo root regardless of CWD (matches existing modules).
-ROOT_DIR = Path(__file__).resolve().parents[2]
-DB_PATH = ROOT_DIR / "db" / "clinical_db.sqlite"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import DB_PATH  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # LOINC codes of interest (vital signs + ICU labs)

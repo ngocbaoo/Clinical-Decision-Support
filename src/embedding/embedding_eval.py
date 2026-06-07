@@ -17,12 +17,9 @@ from pathlib import Path
 
 import chromadb
 
-sys.path.insert(0, str(Path(__file__).parent))
-from or_client import EmbeddingClient  # noqa: E402
-
-WEEK2_DIR = Path(__file__).resolve().parents[2]
-CHUNKS_FILE = WEEK2_DIR / "chunks" / "icu_chunks.json"
-REPORT_FILE = WEEK2_DIR / "chunks" / "evaluation_report.md"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import CHUNKS_FILE, REPORT_FILE  # noqa: E402
+from embedding.or_client import EmbeddingClient  # noqa: E402
 
 MODELS = ["qwen/qwen3-embedding-8b", "openai/text-embedding-3-small"]
 SAMPLE_SIZE = 50

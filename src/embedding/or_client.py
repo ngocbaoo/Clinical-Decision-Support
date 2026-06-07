@@ -22,9 +22,10 @@ from openai import OpenAI
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-# Repo root = d:\VinUni\VSF  (this file is week 2/src/embedding/or_client.py)
-REPO_ROOT = Path(__file__).resolve().parents[3]
-load_dotenv(REPO_ROOT / ".env")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import ENV_FILE  # noqa: E402
+
+load_dotenv(ENV_FILE)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "qwen/qwen3-embedding-8b"
