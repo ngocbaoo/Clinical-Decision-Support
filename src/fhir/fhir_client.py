@@ -11,6 +11,7 @@ Run:
     python src/fhir/fhir_client.py --find                   # list sandbox patient IDs
     python src/fhir/fhir_client.py --patient <id>           # readable full profile
     python src/fhir/fhir_client.py --patient <id> --json    # same profile as JSON
+    python src/fhir/fhir_client.py --file data/mock/patient_A.json  # mock data
 """
 
 import argparse
