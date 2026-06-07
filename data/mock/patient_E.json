@@ -1,0 +1,346 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-005",
+        "name": [{"text": "Trần Văn Em", "family": "Trần", "given": ["Văn Em"]}],
+        "gender": "male",
+        "birthDate": "1965-07-22"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AllergyIntolerance",
+        "id": "allergy-004",
+        "patient": {"reference": "Patient/pt-005"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", "code": "active"}]},
+        "criticality": "low",
+        "code": {"coding": [{"display": "Latex"}], "text": "Latex"},
+        "category": ["environment"],
+        "reaction": [{"manifestation": [{"coding": [{"display": "Contact dermatitis"}]}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-005",
+        "status": "in-progress",
+        "class": {"code": "IMP", "display": "inpatient encounter"},
+        "subject": {"reference": "Patient/pt-005"},
+        "serviceType": {"text": "ICU"},
+        "period": {"start": "2026-06-03T22:00:00"},
+        "reasonCode": [{"text": "Acute respiratory distress syndrome"}],
+        "location": [{"location": {"display": "ICU Phòng 4 Giường 1"}}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-spo2-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "59408-5", "display": "Oxygen saturation"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 84, "unit": "%", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hr-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 105, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-rr-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9279-1", "display": "Respiratory rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 32, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-sbp-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6", "display": "Systolic blood pressure"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 100, "unit": "mmHg", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-temp-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 37.5, "unit": "Cel", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-gcs-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9267-6", "display": "Glasgow coma score total"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueCodeableConcept": {"text": "10 (E2 V3 M5) - sedated"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-creat-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2160-0", "display": "Creatinine"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 110, "unit": "umol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-lactate-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "32693-4", "display": "Lactate"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 2.8, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-pao2-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2703-7", "display": "Oxygen partial pressure in Arterial blood"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 65, "unit": "mmHg", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-bili-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "1975-2", "display": "Bilirubin total"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 1.2, "unit": "mg/dL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-k-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2823-3", "display": "Potassium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 4.2, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-na-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2951-2", "display": "Sodium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 138, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-wbc-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "26464-8", "display": "Leukocytes"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 14.0, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-plt-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "777-3", "display": "Platelets"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 180, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hgb-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 11.0, "unit": "g/dL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-007",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "medicationCodeableConcept": {"text": "Propofol", "coding": [{"display": "Propofol 1%"}]},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 2, "unit": "mg/kg/h"}}],
+          "route": {"coding": [{"display": "Intravenous infusion"}]},
+          "timing": {"code": {"text": "truyền liên tục"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-008",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "medicationCodeableConcept": {"text": "Fentanyl"},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 50, "unit": "mcg/h"}}],
+          "route": {"coding": [{"display": "Intravenous infusion"}]},
+          "timing": {"code": {"text": "truyền liên tục"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-009",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-005"},
+        "encounter": {"reference": "Encounter/enc-005"},
+        "medicationCodeableConcept": {"text": "Cisatracurium"},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 0.15, "unit": "mg/kg/h"}}],
+          "route": {"coding": [{"display": "Intravenous infusion"}]},
+          "timing": {"code": {"text": "truyền liên tục"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-009",
+        "subject": {"reference": "Patient/pt-005"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "code": {
+          "coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "J80", "display": "Adult respiratory distress syndrome"}],
+          "text": "Hội chứng suy hô hấp cấp tiến triển (ARDS)"
+        },
+        "onsetDateTime": "2026-06-03T22:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-010",
+        "subject": {"reference": "Patient/pt-005"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "code": {
+          "coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "J96.0", "display": "Acute respiratory failure"}],
+          "text": "Suy hô hấp cấp"
+        },
+        "onsetDateTime": "2026-06-03T22:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationAdministration",
+        "id": "medadmin-005",
+        "status": "in-progress",
+        "subject": {"reference": "Patient/pt-005"},
+        "context": {"reference": "Encounter/enc-005"},
+        "medicationCodeableConcept": {"text": "Propofol"},
+        "effectivePeriod": {"start": "2026-06-03T22:30:00"},
+        "dosage": {
+          "dose": {"value": 2, "unit": "mg/kg/h"},
+          "route": {"coding": [{"display": "Intravenous infusion"}]}
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-004",
+        "status": "in-progress",
+        "subject": {"reference": "Patient/pt-005"},
+        "code": {"coding": [{"display": "Invasive mechanical ventilation"}], "text": "Thở máy xâm nhập"},
+        "performedPeriod": {"start": "2026-06-03T22:15:00"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-005",
+        "status": "completed",
+        "subject": {"reference": "Patient/pt-005"},
+        "code": {"coding": [{"display": "Prone positioning"}], "text": "Nằm sấp"},
+        "performedDateTime": "2026-06-04T02:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-005",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "code": {"text": "Arterial Blood Gas"},
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-006",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-005"},
+        "code": {"text": "Chest X-ray"},
+        "effectiveDateTime": "2026-06-04T03:00:00"
+      }
+    }
+  ]
+}

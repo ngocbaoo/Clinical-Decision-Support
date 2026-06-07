@@ -1,0 +1,310 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "pt-007",
+        "name": [{"text": "Phạm Văn Giang", "family": "Phạm", "given": ["Văn Giang"]}],
+        "gender": "male",
+        "birthDate": "1970-09-30"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "AllergyIntolerance",
+        "id": "allergy-006",
+        "patient": {"reference": "Patient/pt-007"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", "code": "active"}]},
+        "criticality": "high",
+        "code": {"coding": [{"system": "http://snomed.info/sct", "code": "372906008", "display": "Cephalosporins"}]},
+        "category": ["medication"],
+        "reaction": [{"manifestation": [{"coding": [{"display": "Angioedema"}]}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "enc-007",
+        "status": "in-progress",
+        "class": {"code": "IMP", "display": "inpatient encounter"},
+        "subject": {"reference": "Patient/pt-007"},
+        "serviceType": {"text": "ICU"},
+        "period": {"start": "2026-06-02T18:00:00"},
+        "reasonCode": [{"text": "Acute-on-chronic liver failure"}],
+        "location": [{"location": {"display": "ICU Phòng 5 Giường 3"}}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-spo2-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "59408-5", "display": "Oxygen saturation"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 95, "unit": "%", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hr-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8867-4", "display": "Heart rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 98, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-rr-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9279-1", "display": "Respiratory rate"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 18, "unit": "/min", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-sbp-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6", "display": "Systolic blood pressure"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 105, "unit": "mmHg", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-temp-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "8310-5", "display": "Body temperature"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 37.8, "unit": "Cel", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-gcs-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "9267-6", "display": "Glasgow coma score total"}]},
+        "effectiveDateTime": "2026-06-04T08:00:00",
+        "valueQuantity": {"value": 14, "unit": "{score}", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-creat-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2160-0", "display": "Creatinine"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 95, "unit": "umol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-bili-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "1975-2", "display": "Bilirubin total"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 8.5, "unit": "mg/dL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-lactate-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "32693-4", "display": "Lactate"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 3.2, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-k-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2823-3", "display": "Potassium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 4.0, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-na-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "2951-2", "display": "Sodium"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 130, "unit": "mmol/L", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-wbc-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "26464-8", "display": "Leukocytes"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 11.0, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-plt-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "777-3", "display": "Platelets"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 45, "unit": "10*3/uL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-hgb-007",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "code": {"coding": [{"system": "http://loinc.org", "code": "718-7", "display": "Hemoglobin"}]},
+        "effectiveDateTime": "2026-06-04T07:00:00",
+        "valueQuantity": {"value": 9.0, "unit": "g/dL", "system": "http://unitsofmeasure.org"}
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-013",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "medicationCodeableConcept": {"text": "Lactulose", "coding": [{"display": "Lactulose 30mL"}]},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 30, "unit": "mL"}}],
+          "route": {"coding": [{"display": "Oral"}]},
+          "timing": {"code": {"text": "mỗi 8 giờ"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationRequest",
+        "id": "med-014",
+        "status": "active",
+        "subject": {"reference": "Patient/pt-007"},
+        "encounter": {"reference": "Encounter/enc-007"},
+        "medicationCodeableConcept": {"text": "Vitamin K (Phytomenadione)"},
+        "dosageInstruction": [{
+          "doseAndRate": [{"doseQuantity": {"value": 10, "unit": "mg"}}],
+          "route": {"coding": [{"display": "Intravenous"}]},
+          "timing": {"code": {"text": "mỗi 24 giờ"}}
+        }]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-013",
+        "subject": {"reference": "Patient/pt-007"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "code": {
+          "coding": [{"system": "http://hl7.org/fhir/sid/icd-10", "code": "K70.4", "display": "Hepatic failure, alcoholic"}],
+          "text": "Suy gan do rượu"
+        },
+        "onsetDateTime": "2026-06-02T18:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Condition",
+        "id": "cond-014",
+        "subject": {"reference": "Patient/pt-007"},
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": "active"}]},
+        "code": {
+          "coding": [{"system": "http://snomed.info/sct", "code": "71619000", "display": "Hepatic encephalopathy"}],
+          "text": "Bệnh não gan"
+        },
+        "onsetDateTime": "2026-06-03T10:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "MedicationAdministration",
+        "id": "medadmin-007",
+        "status": "completed",
+        "subject": {"reference": "Patient/pt-007"},
+        "context": {"reference": "Encounter/enc-007"},
+        "medicationCodeableConcept": {"text": "Human Albumin 20%"},
+        "effectiveDateTime": "2026-06-04T06:00:00",
+        "dosage": {
+          "dose": {"value": 100, "unit": "mL"},
+          "route": {"coding": [{"display": "Intravenous"}]}
+        }
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Procedure",
+        "id": "proc-007",
+        "status": "completed",
+        "subject": {"reference": "Patient/pt-007"},
+        "code": {"coding": [{"display": "Paracentesis"}], "text": "Chọc tháo dịch màng bụng"},
+        "performedPeriod": {"start": "2026-06-03T14:00:00", "end": "2026-06-03T14:45:00"},
+        "bodySite": [{"coding": [{"display": "Peritoneal cavity"}]}]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-009",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "code": {"text": "Liver Function Panel"},
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "DiagnosticReport",
+        "id": "dr-010",
+        "status": "final",
+        "subject": {"reference": "Patient/pt-007"},
+        "code": {"text": "Coagulation Panel (PT/INR)"},
+        "effectiveDateTime": "2026-06-04T07:00:00"
+      }
+    }
+  ]
+}

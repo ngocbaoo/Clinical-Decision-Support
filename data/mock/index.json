@@ -31,9 +31,33 @@
       "description": "Hồ sơ tối thiểu: không có Encounter (test fallback), chỉ vài Observation và một Condition; không thuốc/thủ thuật/diagnostic report.",
       "covers_scenarios": [],
       "edge_cases": ["no active encounter", "empty meds/admin/procedures/reports", "single condition"]
+    },
+    {
+      "file": "patient_E.json",
+      "id": "pt-005",
+      "name": "Trần Văn Em",
+      "description": "ARDS / suy hô hấp cấp, thở máy + nằm sấp + an thần. Có đủ PaO2 và Bilirubin; GCS ghi dạng text (valueCodeableConcept).",
+      "covers_scenarios": ["S-03"],
+      "edge_cases": ["PaO2 + bilirubin labs", "GCS as valueCodeableConcept text", "infusion meds (Propofol/Fentanyl/Cisatracurium)", "effectivePeriod / performedPeriod"]
+    },
+    {
+      "file": "patient_F.json",
+      "id": "pt-006",
+      "name": "Lê Thị Phương",
+      "description": "Nhồi máu cơ tim cấp + sốc tim, can thiệp PCI. Huyết áp ghi dạng component, một thuốc qua medicationReference.",
+      "covers_scenarios": ["S-03"],
+      "edge_cases": ["BP via component[] (systolic extraction)", "medicationReference.display", "emergency encounter class", "performedPeriod with end"]
+    },
+    {
+      "file": "patient_G.json",
+      "id": "pt-007",
+      "name": "Phạm Văn Giang",
+      "description": "Suy gan cấp trên nền mạn + bệnh não gan, rối loạn đông máu. Bilirubin cao, tiểu cầu thấp.",
+      "covers_scenarios": [],
+      "edge_cases": ["allergy coding-only (no text)", "SNOMED-coded condition (ICD-10 fallback)", "high bilirubin / low platelet", "effectivePeriod admin"]
     }
   ],
-  "total_patients": 4,
+  "total_patients": 7,
   "generated_at": "2026-06-04",
   "fhir_version": "R4"
 }
