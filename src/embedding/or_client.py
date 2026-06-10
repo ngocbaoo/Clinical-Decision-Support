@@ -29,6 +29,7 @@ load_dotenv(ENV_FILE)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_CHAT_MODEL = "qwen/qwen3.6-flash"
 
 
 def _normalize(vec: list[float]) -> list[float]:
@@ -80,3 +81,40 @@ class EmbeddingClient:
 
     def embed_one(self, text: str) -> list[float]:
         return self.embed([text])[0]
+
+
+class ChatClient:
+    """Thin wrapper over the OpenRouter chat-completions endpoint."""
+
+    def __init__(self, model_name: str = DEFAULT_CHAT_MODEL):
+        api_key = os.getenv("OPEN_ROUTER_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPEN_ROUTER_KEY not found in environment / .env at repo root."
+            )
+        self.model_name = model_name
+        self.client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+
+    def chat(self, messages: list[dict], temperature: float = 0.1,
+             max_tokens: int = 1200, max_retries: int = 3) -> str:
+        """Send a chat-completion request; returns the assistant text."""
+        last_err: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                content = resp.choices[0].message.content
+                if content is None:
+                    raise RuntimeError("empty completion")
+                return content
+            except Exception as err:  # transient network / rate-limit
+                last_err = err
+                wait = 2 ** attempt
+                print(f"  [chat retry {attempt + 1}/{max_retries}] {err} "
+                      f"-> sleeping {wait}s", file=sys.stderr)
+                time.sleep(wait)
+        raise RuntimeError(f"Chat failed after {max_retries} attempts: {last_err}")

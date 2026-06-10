@@ -24,11 +24,13 @@ from paths import DATA_DIR, CHUNKS_FILE  # noqa: E402
 DATA_FILE = DATA_DIR / "quy_trinh_icu_vn.md"
 ICU2015_FILE = DATA_DIR / "icu_2015.md"
 TT51_FILE = DATA_DIR / "tt51_phan_ve.md"
+SSC_FILE = DATA_DIR / "ssc_2021.md"
 OUTPUT_FILE = CHUNKS_FILE
 
 SOURCE = "Quy trình ICU — BYT VN 2014"
 ICU2015_SOURCE = "Hồi sức tích cực — BYT VN 2015"
 TT51_SOURCE = "Thông tư 51/2017/TT-BYT — Phản vệ"
+SSC_SOURCE = "Surviving Sepsis Campaign 2021"
 MAX_CHARS = 6000
 MIN_CHARS = 800
 TT51_MIN_CHARS = 200
@@ -327,6 +329,53 @@ def chunk_tt51(text: str, start_index: int = 0) -> list[dict]:
     return chunks
 
 
+def _pack_lines(text: str, cap: int) -> list[str]:
+    """Greedily pack lines into blocks <= cap chars (line is the atomic unit)."""
+    out, buf = [], ""
+    for line in text.split("\n"):
+        if buf and len(buf) + len(line) + 1 > cap:
+            out.append(buf.strip())
+            buf = line
+        else:
+            buf = f"{buf}\n{line}" if buf else line
+    if buf.strip():
+        out.append(buf.strip())
+    return out
+
+
+def chunk_generic(text: str, source: str, language: str = "en",
+                  chunk_type: str = "guideline", title: str = "Document",
+                  start_index: int = 0) -> list[dict]:
+    """Size-based chunker for structureless docs (no markdown headings).
+
+    Used for the Surviving Sepsis Campaign 2021 guideline, which is two-column
+    PDF text with no headings — packed into <= MAX_CHARS blocks on line
+    boundaries. Sentences are imperfect (column interleaving in the source), but
+    topical keywords stay intact for semantic retrieval.
+    """
+    blocks = [b for b in _pack_lines(text, MAX_CHARS) if len(b) >= MIN_CHARS]
+    partial = len(blocks) > 1
+    chunks: list[dict] = []
+    for i, block in enumerate(blocks):
+        chunks.append({
+            "id": f"icu_{start_index + i:04d}",
+            "text": block,
+            "title": f"{title} — part {i + 1}",
+            "chunk_type": chunk_type,
+            "source": source,
+            "language": language,
+            "metadata": {
+                "procedure_title": title,
+                "has_contraindication": False,
+                "has_steps": False,
+                "is_partial": partial,
+                "char_count": len(block),
+                "type": "standard",
+            },
+        })
+    return chunks
+
+
 def _print_stats(chunks: list[dict]) -> None:
     by_type: dict[str, int] = {}
     for c in chunks:
@@ -336,6 +385,8 @@ def _print_stats(chunks: list[dict]) -> None:
     print(f"  - procedure:           {by_type.get('procedure', 0)}")
     print(f"  - procedure_section:   {by_type.get('procedure_section', 0)}")
     print(f"  - contraindication:    {by_type.get('contraindication', 0)}")
+    if by_type.get("guideline"):
+        print(f"  - guideline:           {by_type.get('guideline', 0)}")
     print(f"Size: min={min(sizes)} / max={max(sizes)} / avg={sum(sizes) // len(sizes)}")
 
 
@@ -384,7 +435,14 @@ def main() -> None:
     tt51 = chunk_tt51(load_and_clean(TT51_FILE))
     print(f"  -> {len(tt51)} from Thông tư 51/2017 (phản vệ)\n")
 
-    chunks = chunks + icu2015 + tt51
+    ssc = []
+    if SSC_FILE.exists():
+        print(f"Loading {SSC_FILE.name}...")
+        ssc = chunk_generic(load_and_clean(SSC_FILE), SSC_SOURCE, language="en",
+                            title="Surviving Sepsis Campaign 2021")
+        print(f"  -> {len(ssc)} from Surviving Sepsis Campaign 2021\n")
+
+    chunks = chunks + icu2015 + tt51 + ssc
     # Re-assign globally unique, sequential IDs across all sources.
     for i, c in enumerate(chunks):
         c["id"] = f"icu_{i:04d}"

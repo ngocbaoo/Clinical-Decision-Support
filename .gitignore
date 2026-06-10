@@ -3,9 +3,6 @@ __pycache__/
 *.pyc
 /chroma_db/
 /db/
-data/*
-# Mock FHIR patient bundles are committed (they replace the sandbox for testing)
-!data/mock/
 chunks/
 .vscode/
 .claude/

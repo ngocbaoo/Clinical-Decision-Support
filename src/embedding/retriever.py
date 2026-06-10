@@ -48,11 +48,16 @@ def _open_collection():
 
 
 def retrieve(query: str, collection, model: EmbeddingClient, n_results: int = 3,
-             chunk_type_filter: str | None = None, min_score: float = 0.5) -> list[dict]:
-    """Semantic search; returns results with score >= min_score."""
+             chunk_type_filter: str | None = None, min_score: float = 0.5,
+             query_embedding: list[float] | None = None) -> list[dict]:
+    """Semantic search; returns results with score >= min_score.
+
+    Pass query_embedding to reuse an already-computed vector (saves an API call
+    when the same query is retrieved with different filters).
+    """
     where = {"chunk_type": chunk_type_filter} if chunk_type_filter else None
     res = collection.query(
-        query_embeddings=[model.embed_one(query)],
+        query_embeddings=[query_embedding or model.embed_one(query)],
         n_results=n_results,
         where=where,
     )
