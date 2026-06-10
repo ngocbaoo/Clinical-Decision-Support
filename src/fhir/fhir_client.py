@@ -150,13 +150,13 @@ class FHIRClient:
                 return resp.json()
             except requests.Timeout:
                 if attempt == 0:
-                    _log(f"  ⏱ Timeout {path}, retrying...")
+                    _log(f"  Timeout {path}, retrying...")
                     continue
-                _log(f"  ✗ Timeout {path} sau 2 lần thử")
+                _log(f"  Timeout {path} sau 2 lần thử")
                 self.missing_resources.append(path.split("/")[0])
                 return {}
             except Exception as e:
-                _log(f"  ✗ Error {path}: {e}")
+                _log(f"  Error {path}: {e}")
                 self.missing_resources.append(path.split("/")[0])
                 return {}
         return {}
@@ -544,7 +544,7 @@ def print_context(ctx: dict):
     print("\n[ALLERGIES]")
     if ctx["allergies"]:
         for a in ctx["allergies"]:
-            print(f"  ⚠️  {a.get('allergen', '?')} "
+            print(f"  {a.get('allergen', '?')} "
                   f"→ {a.get('reaction', '?')} "
                   f"({a.get('criticality', '?')})")
     else:
@@ -554,7 +554,7 @@ def print_context(ctx: dict):
     print("\n[OBSERVATIONS]")
     for key, obs in ctx["observations"].items():
         if obs.get("value") is None:
-            print(f"  {key:.<20} ⚠️  không có data")
+            print(f"  {key:.<20} không có data")
             continue
         v = obs["value"]
         u = obs.get("unit", "") or ""

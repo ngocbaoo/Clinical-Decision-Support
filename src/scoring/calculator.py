@@ -604,13 +604,13 @@ def calculate_all(patient_context: dict) -> dict:
 
     alerts = []
     if news2_result["risk_level"] == "HIGH":
-        alerts.append(f"⚠️  NEWS2 = {news2_result['total']} — MỨC ĐỘ CAO")
+        alerts.append(f"NEWS2 = {news2_result['total']} — MỨC ĐỘ CAO")
     if qsofa_result["positive"]:
-        alerts.append("⚠️  qSOFA ≥ 2 — Nguy cơ sepsis cao")
+        alerts.append("qSOFA ≥ 2 — Nguy cơ sepsis cao")
     if map_result.get("value") is not None and map_result["value"] < 65:
-        alerts.append(f"⚠️  MAP = {map_result['value']} mmHg — Dưới ngưỡng (< 65)")
+        alerts.append(f"MAP = {map_result['value']} mmHg — Dưới ngưỡng (< 65)")
     if egfr_result.get("dose_adjustment"):
-        alerts.append(f"⚠️  eGFR = {egfr_result['egfr']} — Cần điều chỉnh liều thuốc")
+        alerts.append(f"eGFR = {egfr_result['egfr']} — Cần điều chỉnh liều thuốc")
 
     return {
         "map": map_result, "qsofa": qsofa_result, "sofa": sofa_result,
@@ -627,46 +627,43 @@ def print_calculations(calc: dict):
     m = calc["map"]
     print("\n[MAP]")
     if m["missing"]:
-        print("  ⚠️  Thiếu dữ liệu (SBP hoặc DBP)")
+        print("  Thiếu dữ liệu (SBP hoặc DBP)")
     else:
         print(f"  {m['value']} mmHg (SBP {m['sbp']} / DBP {m['dbp']})")
         print(f"  → {m['interpretation']}")
 
     q = calc["qsofa"]
     print(f"\n[qSOFA] = {q['total']}/3 "
-          f"({'DƯƠNG TÍNH ⚠️' if q['positive'] else 'Âm tính'}) [{q['reliability']}]")
+          f"({'DƯƠNG TÍNH' if q['positive'] else 'Âm tính'}) [{q['reliability']}]")
     for name, comp in q["components"].items():
         v, s, t = comp["value"], comp["score"], comp["threshold"]
-        status = "✓" if s > 0 else "·"
-        print(f"  {status} {name:<15} = {v if v is not None else '?':>6}  ({t}) → {s} điểm")
+        print(f"  {name:<15} = {v if v is not None else '?':>6}  ({t}) → {s} điểm")
 
     s = calc["sofa"]
     print(f"\n[SOFA] = {s['total']}/24 | {s['mortality_estimate']} [{s['reliability']}]")
     for organ, comp in s["components"].items():
         v = comp.get("value")
-        miss = "⚠️" if comp.get("missing") else ""
+        miss = "(thiếu)" if comp.get("missing") else ""
         print(f"  {organ:<20} score={comp['score']}  "
               f"value={v if v is not None else '?'} {miss}")
 
     n = calc["news2"]
-    risk_emoji = {"LOW": "🟢", "MEDIUM-LOW": "🟡", "MEDIUM": "🟠",
-                  "HIGH": "🔴"}.get(n["risk_level"], "")
-    print(f"\n[NEWS2] = {n['total']} điểm → {risk_emoji} {n['risk_vi']} "
+    print(f"\n[NEWS2] = {n['total']} điểm → {n['risk_vi']} "
           f"(Scale {n['scale']}) [{n['reliability']}]")
     for name, comp in n["components"].items():
         v = comp["value"]
-        miss = "⚠️" if comp.get("missing") else ""
+        miss = "(thiếu)" if comp.get("missing") else ""
         print(f"  {name:<15} = {str(v) if v is not None else '?':>6}  → {comp['score']} điểm {miss}")
 
     e = calc["egfr"]
     print("\n[eGFR]")
     if e["missing"]:
-        print(f"  ⚠️  {e['note']}")
+        print(f"  {e['note']}")
     else:
         print(f"  Creatinine: {e['creatinine_umol']} μmol/L ({e['creatinine_mgdl']} mg/dL)")
         print(f"  eGFR: {e['egfr']} mL/min/1.73m² → {e['stage']} ({e['stage_vi']})")
         if e["note"]:
-            print(f"  ⚠️  {e['note']}")
+            print(f"  {e['note']}")
 
     if calc["summary"]["alerts"]:
         print(f"\n{'=' * 55}")
