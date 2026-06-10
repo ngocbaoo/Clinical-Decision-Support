@@ -10,3 +10,4 @@ chunks/
 .vscode/
 .claude/
 note.txt
+.pytest_cache

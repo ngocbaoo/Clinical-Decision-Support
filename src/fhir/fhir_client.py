@@ -385,15 +385,23 @@ class FHIRClient:
             code_block = r.get("code", {})
             coding = code_block.get("coding", [])
             icd_code = None
+            icd_display = ""
             for c in coding:
                 system = (c.get("system") or "").lower()
                 if "icd-10" in system or "icd10" in system:
                     icd_code = c.get("code")
+                    icd_display = c.get("display") or ""
                     break
             if not icd_code and coding:
                 icd_code = coding[0].get("code")
-            name_vi, name_en = self._lookup_icd10(icd_code) if icd_code else ("", "")
-            display = code_block.get("text") or (coding[0].get("display") if coding else "")
+            # Prefer the resource's own clean names; the SQLite lookup (parsed from
+            # icd-10_vn.md) is a noisy fallback for codes the resource doesn't name.
+            fhir_text = code_block.get("text")                      # Vietnamese
+            fhir_display = icd_display or (coding[0].get("display") if coding else "")  # English
+            db_vi, db_en = self._lookup_icd10(icd_code) if icd_code else ("", "")
+            name_vi = fhir_text or db_vi
+            name_en = fhir_display or db_en
+            display = fhir_text or fhir_display or db_vi or ""
             out.append({
                 "icd10_code": icd_code or "?",
                 "name_vi": name_vi,
