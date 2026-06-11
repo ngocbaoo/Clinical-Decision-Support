@@ -82,7 +82,8 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
                          top_score)
 
     summary = summarize_patient(patient_context, calc)
-    messages = build_messages(query, chunks, summary, format_alerts(alerts))
+    messages = build_messages(query, chunks, summary, format_alerts(alerts),
+                              intent=intent)
     try:
         reply = chat.chat(messages, temperature=0.1, max_tokens=900)
         data = parse_json_loose(reply)
@@ -91,7 +92,10 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
                          f"generation_error: {err}", top_score)
 
     answer = (data.get("answer") or "").strip()
-    if data.get("insufficient") or not answer:
+    # Scoring answers are grounded in calculate_all() — the "insufficient" flag
+    # (about guideline coverage) doesn't apply as long as the model produced text.
+    insufficient = (data.get("insufficient") and not is_scoring)
+    if insufficient or not answer:
         return _response(FALLBACK_TEXT, [], chunks, alerts, True,
                          "llm_insufficient", top_score)
 

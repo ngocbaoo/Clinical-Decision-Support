@@ -24,7 +24,8 @@ from embedding.retriever import COLLECTION_NAME, retrieve  # noqa: E402
 from rag.config import GEN_MODEL, TOP_K  # noqa: E402
 from rag.generator import generate  # noqa: E402
 from rag.query_router import route  # noqa: E402
-from rag.safety import check_allergies, check_drug_interactions  # noqa: E402
+from rag.safety import (check_allergies, check_contraindications,  # noqa: E402
+                        check_drug_interactions)
 
 
 class RAGPipeline:
@@ -77,6 +78,7 @@ class RAGPipeline:
 
         t = time.perf_counter()
         alerts = check_allergies(routing["drugs"], patient_context or {})
+        alerts += check_contraindications(routing["drugs"], patient_context or {})
         alerts += check_drug_interactions(routing["drugs"], patient_context or {})
         timings["safety"] = round(time.perf_counter() - t, 2)
 

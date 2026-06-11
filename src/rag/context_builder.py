@@ -106,13 +106,23 @@ Chỉ trả về JSON:
 """
 
 
+SCORING_DIRECTIVE = (
+    "Đây là câu hỏi về ĐIỂM SỐ lâm sàng. Bắt buộc trả lời từ các điểm số đã tính "
+    "sẵn trong dữ liệu bệnh nhân (nêu rõ giá trị và mức nguy cơ); KHÔNG đặt "
+    "insufficient=true chỉ vì tài liệu không đề cập điểm số. Có thể dùng tài liệu "
+    "cho phần hướng xử trí nếu liên quan."
+)
+
+
 def build_messages(query: str, chunks: list[dict], patient_summary: str,
-                   alert_text: str) -> list[dict]:
+                   alert_text: str, intent: str | None = None) -> list[dict]:
     user = []
     if alert_text:
         user.append(f"=== CẢNH BÁO AN TOÀN (bắt buộc nhắc lại đầu tiên) ===\n{alert_text}")
     user.append(f"=== DỮ LIỆU BỆNH NHÂN ===\n{patient_summary}")
     user.append(f"=== TÀI LIỆU ===\n{format_chunks(chunks)}")
+    if intent == "scoring":
+        user.append(f"=== LƯU Ý ===\n{SCORING_DIRECTIVE}")
     user.append(f"=== CÂU HỎI ===\n{query}")
     return [
         {"role": "system", "content": SYSTEM_PROMPT},

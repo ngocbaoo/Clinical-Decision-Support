@@ -225,9 +225,22 @@
         "procedure without bodySite",
         "medicationReference"
       ]
+    },
+    {
+      "file": "patient_R.json",
+      "id": "pt-018",
+      "name": "Đặng Thị Mai",
+      "description": "Thai phụ 28 tuần, xuất huyết tiêu hóa trên, ICU. Đang dùng Aspirin 81mg. Dùng để demo cảnh báo an toàn OpenFDA: chống chỉ định (thai kỳ + xuất huyết) và tương tác thuốc (Aspirin ⇄ Warfarin) khi hỏi về Warfarin.",
+      "covers_scenarios": [],
+      "edge_cases": [
+        "pregnancy contraindication trigger",
+        "active bleeding contraindication trigger",
+        "drug-drug interaction (Aspirin current med)",
+        "female obstetric ICU patient"
+      ]
     }
   ],
-  "total_patients": 17,
+  "total_patients": 18,
   "generated_at": "2026-06-04",
   "fhir_version": "R4"
 }

@@ -9,12 +9,13 @@ GEN_MODEL = "qwen/qwen3.6-flash"
 JUDGE_MODEL = "openai/gpt-5.4"
 
 # Retrieval confidence threshold for the F-RAG-09 fallback ("Không đủ thông
-# tin"). Calibrated 2026-06-10 by src/rag/eval/retrieval_eval.py: off-topic
-# queries score <= 0.37, in-scope min top-1 = 0.577 -> 0.50 splits with margin.
-# Known limitation: medical-but-absent topics (e.g. truyền máu, 0.601) pass the
-# threshold and rely on the generator's insufficient/citation guard instead.
-# Re-run the calibration after re-indexing.
-CONF_THRESHOLD = 0.50
+# tin"). Calibrated 2026-06-10 by src/rag/eval/retrieval_eval.py: truly
+# off-topic queries (weather/diet/vaccine) score <= 0.37, so 0.40 rejects them
+# while admitting weakly-matched but legitimate clinical questions (e.g. the
+# vasopressor/MAP query at 0.45). Known limitation: medical-but-absent topics
+# (e.g. truyền máu, 0.601) pass the threshold and rely on the generator's
+# insufficient/citation guard instead. Re-run the calibration after re-indexing.
+CONF_THRESHOLD = 0.40
 
 # How many chunks to retrieve / pass to the LLM.
 TOP_K = 5

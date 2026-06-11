@@ -8,7 +8,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rag.generator import generate, FALLBACK_TEXT, OFF_TOPIC_TEXT  # noqa: E402
 from rag.query_router import keyword_route, parse_json_loose  # noqa: E402
-from rag.safety import check_allergies, format_alerts  # noqa: E402
+from rag.safety import (check_allergies, check_contraindications,  # noqa: E402
+                        check_drug_interactions, format_alerts)
+from rag import safety as safety_mod  # noqa: E402
+from rag.openfda import find_mention  # noqa: E402
 from rag.context_builder import build_messages, summarize_patient  # noqa: E402
 from rag.config import DISCLAIMER  # noqa: E402
 
@@ -56,6 +59,126 @@ def test_format_alerts_leads_with_warning():
     text = format_alerts(alerts)
     assert text.startswith("⚠️")
     assert "Amoxicillin" in text and "Penicillin" in text
+
+
+# ---- drug interactions (OpenFDA, network mocked) --------------------------
+_WARFARIN_LABEL = ("Concomitant use of Warfarin and Aspirin increases the risk "
+                   "of bleeding. Avoid coadministration with NSAIDs.")
+
+
+def _patient_on(*meds):
+    return {"medications": [{"name": m, "dose": ""} for m in meds]}
+
+
+def test_interaction_query_drug_vs_patient_med(monkeypatch):
+    # Query asks about Aspirin; patient is on Warfarin whose label names Aspirin.
+    monkeypatch.setattr(safety_mod, "get_interaction_text",
+                        lambda d: [_WARFARIN_LABEL] if "aspirin" in d.lower() else [])
+    alerts = check_drug_interactions(["Aspirin"], _patient_on("Warfarin"))
+    assert len(alerts) == 1
+    a = alerts[0]
+    assert a["type"] == "interaction" and a["drug_b"] == "Warfarin"
+    assert "bleeding" in a["snippet"].lower()
+
+
+def test_interaction_deduplicates_pairs(monkeypatch):
+    # Both drugs queried; each label names the other -> still one alert.
+    monkeypatch.setattr(safety_mod, "get_interaction_text",
+                        lambda d: [_WARFARIN_LABEL])
+    alerts = check_drug_interactions(["Warfarin", "Aspirin"], {})
+    assert len(alerts) == 1
+
+
+def test_interaction_none_when_no_drugs(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_interaction_text",
+                        lambda d: [_WARFARIN_LABEL])
+    assert check_drug_interactions([], _patient_on("Warfarin")) == []
+
+
+def test_interaction_degrades_on_empty_label(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_interaction_text", lambda d: [])
+    assert check_drug_interactions(["Aspirin"], _patient_on("Warfarin")) == []
+
+
+def test_find_mention_whole_word_only():
+    assert find_mention("Avoid use with Aspirin.", "Aspirin") is not None
+    # 'pin' must not match inside 'Aspirin'
+    assert find_mention("Avoid use with Aspirin.", "pin") is None
+
+
+def test_format_alerts_renders_interaction_block():
+    alerts = [{"type": "interaction", "drug_a": "Aspirin", "drug_b": "Warfarin",
+               "other_source": "thuốc kê đơn", "snippet": "bleeding risk"}]
+    text = format_alerts(alerts)
+    assert "TƯƠNG TÁC THUỐC" in text and "Aspirin ⇄ Warfarin" in text
+
+
+def test_format_alerts_allergy_first_then_interaction():
+    alerts = check_allergies(["Amoxicillin"], _patient_with_allergy())
+    alerts += [{"type": "interaction", "drug_a": "A", "drug_b": "B",
+                "other_source": "câu hỏi", "snippet": "x"}]
+    text = format_alerts(alerts)
+    assert text.index("DỊ ỨNG") < text.index("TƯƠNG TÁC")
+
+
+# ---- contraindications (OpenFDA, network mocked) --------------------------
+_WARFARIN_CONTRA = ("Warfarin sodium is contraindicated in: Pregnancy. "
+                    "Warfarin can cause fetal harm. Also contraindicated in "
+                    "patients with recent surgery or active bleeding.")
+
+
+def _patient_with_conditions(*name_en):
+    return {"conditions": [{"name_vi": n, "name_en": n, "display": n}
+                           for n in name_en]}
+
+
+def test_contra_matches_condition(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_contraindication_text",
+                        lambda d: [_WARFARIN_CONTRA])
+    patient = _patient_with_conditions("Active bleeding")
+    alerts = check_contraindications(["Warfarin"], patient)
+    assert len(alerts) == 1
+    assert alerts[0]["type"] == "contraindication"
+    assert "bleeding" in alerts[0]["snippet"].lower()
+
+
+def test_contra_pregnancy_stem_match(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_contraindication_text",
+                        lambda d: [_WARFARIN_CONTRA])
+    # Condition recorded in Vietnamese ("thai") -> pregnancy stem trigger,
+    # matches FDA "Pregnancy".
+    patient = {"conditions": [{"name_vi": "Mang thai", "name_en": ""}]}
+    alerts = check_contraindications(["Warfarin"], patient)
+    assert any(a["condition"] == "Thai kỳ" for a in alerts)
+
+
+def test_contra_no_match_unrelated_condition(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_contraindication_text",
+                        lambda d: [_WARFARIN_CONTRA])
+    patient = _patient_with_conditions("Pneumonia")
+    assert check_contraindications(["Warfarin"], patient) == []
+
+
+def test_contra_none_when_no_conditions(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_contraindication_text",
+                        lambda d: [_WARFARIN_CONTRA])
+    assert check_contraindications(["Warfarin"], {}) == []
+
+
+def test_contra_degrades_on_empty_label(monkeypatch):
+    monkeypatch.setattr(safety_mod, "get_contraindication_text", lambda d: [])
+    patient = _patient_with_conditions("Active bleeding")
+    assert check_contraindications(["Warfarin"], patient) == []
+
+
+def test_format_alerts_orders_allergy_contra_interaction():
+    alerts = (check_allergies(["Amoxicillin"], _patient_with_allergy())
+              + [{"type": "contraindication", "drug": "W", "condition": "Thai kỳ",
+                  "matched": "pregnan", "snippet": "x"}]
+              + [{"type": "interaction", "drug_a": "A", "drug_b": "B",
+                  "other_source": "câu hỏi", "snippet": "y"}])
+    text = format_alerts(alerts)
+    assert text.index("DỊ ỨNG") < text.index("CHỐNG CHỈ ĐỊNH") < text.index("TƯƠNG TÁC")
 
 
 # ---- router fallback / JSON parsing ---------------------------------------
