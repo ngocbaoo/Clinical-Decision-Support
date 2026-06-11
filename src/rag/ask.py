@@ -34,6 +34,9 @@ def main() -> None:
     parser.add_argument("--file", help="mock FHIR Bundle JSON (patient context)")
     parser.add_argument("--patient", help="FHIR Patient ID from the live sandbox")
     parser.add_argument("--model", default=GEN_MODEL, help="generation model slug")
+    parser.add_argument("--no-verify", action="store_true", help="disable the verifier")
+    parser.add_argument("--backend", default=None,
+                        help="verifier backend: llm | local_nli | hybrid")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -44,8 +47,11 @@ def main() -> None:
         patient_context = client.build_patient_context()
         calc = calculate_all(patient_context)
 
-    _log(f"Model: {args.model}")
-    pipeline = RAGPipeline(gen_model=args.model)
+    from rag.config import VERIFIER_BACKEND
+    backend = args.backend or VERIFIER_BACKEND
+    _log(f"Model: {args.model} | verify: {not args.no_verify} ({backend})")
+    pipeline = RAGPipeline(gen_model=args.model, verify=not args.no_verify,
+                           backend=backend)
     result = pipeline.ask(args.query, patient_context, calc)
 
     if args.json:
@@ -54,7 +60,9 @@ def main() -> None:
         return
 
     r = result["response"]
+    _log(f"Request: {result['request_id']}")
     _log(f"Intent: {result['routing']['intent']} (via {result['routing']['via']})")
+    _log(f"Verify: {r.get('verify')}")
     _log(f"Timings: {result['timings_s']}")
     print("=" * 60)
     print(r["answer"])

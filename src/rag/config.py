@@ -1,12 +1,26 @@
 """RAG module configuration — models and thresholds in one place."""
 
 # Generation + routing model (OpenRouter slug). Chosen for Vietnamese quality
-# at low cost; swap here to A/B another model.
-GEN_MODEL = "qwen/qwen3.6-flash"
+# at low cost. NOTE: the model swap is the LAST variable — keep this on the cheap
+# flash model and prove prompt+verifier first; only swap to qwen/qwen3.6-plus if
+# the {flash,plus}x{no-verify,verify} matrix shows flash+verifier is insufficient.
+GEN_MODEL = "qwen/qwen3.6-plus"
 
 # Judge model for answer evaluation. Must be a DIFFERENT family from
 # GEN_MODEL to avoid self-preference bias.
 JUDGE_MODEL = "openai/gpt-5.4"
+
+# --- Faithfulness verifier (claim-level entailment) ---------------------------
+# Backend for the post-generation verifier:
+#   "local_nli" — offline mDeBERTa-XNLI via ONNX (no torch; preferred if it passes
+#                 the Phase-1 spike on negation/safety pairs)
+#   "llm"       — openai/gpt-5.4-mini (different family from the qwen generator)
+#   "hybrid"    — local NLI for easy claims, escalate low-confidence/safety to LLM
+VERIFIER_BACKEND = "llm"
+VERIFIER_MODEL = "openai/gpt-5.4-mini"     # used by "llm" and "hybrid" backends
+VERIFY_ENABLED = True
+# Below this NLI max-probability a claim is "low confidence" -> hybrid escalates.
+VERIFY_NLI_CONF = 0.60
 
 # Retrieval confidence threshold for the F-RAG-09 fallback ("Không đủ thông
 # tin"). Calibrated 2026-06-10 by src/rag/eval/retrieval_eval.py: truly

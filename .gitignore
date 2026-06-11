@@ -8,3 +8,4 @@ chunks/
 .claude/
 note.txt
 .pytest_cache
+docs/

@@ -36,5 +36,8 @@ CHUNKS_DIR = ROOT / "chunks"
 CHUNKS_FILE = CHUNKS_DIR / "icu_chunks.json"
 REPORT_FILE = CHUNKS_DIR / "evaluation_report.md"
 
+# Per-request structured logs (one JSONL file per day)
+LOG_DIR = ROOT / "logs"
+
 # Secrets
 ENV_FILE = ROOT / ".env"

@@ -14,6 +14,9 @@ from rag import safety as safety_mod  # noqa: E402
 from rag.openfda import find_mention  # noqa: E402
 from rag.context_builder import build_messages, summarize_patient  # noqa: E402
 from rag.config import DISCLAIMER  # noqa: E402
+from rag.verifier import (decide, verify_answer, _is_effective_safety,  # noqa: E402
+                          _evidence_matches)
+from rag.logging_utils import log_request  # noqa: E402
 
 
 def _chunks(scores=(0.7, 0.6)):
@@ -270,6 +273,179 @@ def test_generate_garbage_reply_falls_back():
     chat = _mock_chat("I cannot answer that.")
     resp = generate("q", "procedure", _chunks(), {}, {}, [], chat)
     assert resp["fallback"] and "generation_error" in resp["fallback_reason"]
+
+
+# ---- verifier: decision tree (pure) ---------------------------------------
+def _cl(text, citation=1):
+    return {"text": text, "citation": citation, "evidence": ""}
+
+
+def _v(verdict, is_safety=False):
+    return {"verdict": verdict, "is_safety": is_safety}
+
+
+def test_decide_supported_kept():
+    d = decide([_cl("Bù dịch tinh thể")], [_v("supported")], "procedure")
+    assert d["action"] == "keep" and len(d["kept_claims"]) == 1
+
+
+def test_decide_neutral_ordinary_stripped():
+    d = decide([_cl("Bù dịch tinh thể"), _cl("Thêm vitamin C")],
+               [_v("supported"), _v("neutral")], "procedure")
+    assert d["action"] == "keep" and len(d["kept_claims"]) == 1
+    assert d["unsupported_ratio"] == 0.5
+
+
+def test_decide_all_neutral_falls_back():
+    d = decide([_cl("Thêm vitamin C")], [_v("neutral")], "procedure")
+    assert d["action"] == "fallback" and d["fallback_reason"] == "verifier_unsupported"
+
+
+def test_decide_contradicted_falls_back_whole_answer():
+    # one contradiction taints the whole answer even though another is supported
+    d = decide([_cl("Bù dịch [1]"), _cl("Không dùng noradrenalin [1]")],
+               [_v("supported"), _v("contradicted")], "procedure")
+    assert d["action"] == "fallback" and d["branch"] == "contradicted"
+    assert d["fallback_reason"] == "verifier_contradicted"
+
+
+def test_decide_unsupported_safety_falls_back():
+    d = decide([_cl("Bù dịch [1]"), _cl("Chống chỉ định dùng thuốc X [1]")],
+               [_v("supported"), _v("neutral")], "procedure")
+    assert d["action"] == "fallback" and d["fallback_reason"] == "verifier_unsupported_safety"
+
+
+def test_decide_safety_via_verifier_flag():
+    d = decide([_cl("Theo dõi sát bệnh nhân")], [_v("neutral", is_safety=True)], "procedure")
+    assert d["fallback_reason"] == "verifier_unsupported_safety"
+
+
+def test_decide_intent_contraindication_requires_all_supported():
+    d = decide([_cl("Có thể dùng thuốc")], [_v("neutral")], "contraindication")
+    assert d["action"] == "fallback" and d["fallback_reason"] == "verifier_unsupported_safety"
+
+
+def test_decide_ordered_procedure_integrity_break():
+    d = decide([_cl("Bước 1 đặt tư thế"), _cl("Bước 2 hút đờm")],
+               [_v("supported"), _v("neutral")], "procedure")
+    assert d["action"] == "fallback" and d["fallback_reason"] == "verifier_integrity_break"
+
+
+def test_decide_ordered_procedure_all_supported_kept():
+    d = decide([_cl("Bước 1 đặt tư thế"), _cl("Bước 2 hút đờm")],
+               [_v("supported"), _v("supported")], "procedure")
+    assert d["action"] == "keep" and len(d["kept_claims"]) == 2
+
+
+def test_effective_safety_keyword_backstop():
+    assert _is_effective_safety("Chống chỉ định dùng X", False, "procedure")
+    assert _is_effective_safety("bất kỳ câu nào", False, "contraindication")
+    assert not _is_effective_safety("Bù dịch tinh thể", False, "procedure")
+
+
+# ---- verifier: fast-path + backend ----------------------------------------
+def test_evidence_matches_fold():
+    assert _evidence_matches("phải đặt nội khí quản", "... PHẢI  đặt nội khí quản ngay ...")
+    assert not _evidence_matches("xyz", "abc def")
+
+
+def test_verify_fast_path_skips_backend():
+    chat = MagicMock()  # must NOT be called — evidence is literally in the chunk
+    claims = [{"text": "Đặt nội khí quản [1]", "evidence": "phải đặt nội khí quản",
+               "citation": 1}]
+    chunks = [{"text": "Bệnh nhân phải đặt nội khí quản ngay", "title": "T", "source": "S",
+               "chunk_type": "procedure", "score": 0.8}]
+    res = verify_answer(claims, chunks, "", "procedure", backend="llm", verifier_chat=chat)
+    assert res["status"] == "ok" and res["action"] == "keep"
+    chat.chat.assert_not_called()
+
+
+def test_verify_miss_falls_through_to_backend():
+    chat = _mock_chat('{"claims": [{"i": 0, "verdict": "supported", "is_safety": false}]}')
+    claims = [{"text": "Khuyến nghị X [1]", "evidence": "không có trong chunk", "citation": 1}]
+    chunks = [{"text": "nội dung khác", "title": "T", "source": "S",
+               "chunk_type": "procedure", "score": 0.8}]
+    res = verify_answer(claims, chunks, "", "procedure", backend="llm", verifier_chat=chat)
+    assert res["action"] == "keep"
+    chat.chat.assert_called_once()
+
+
+def test_verify_backend_error_returns_status_error():
+    chat = MagicMock()
+    chat.chat.side_effect = RuntimeError("api down")
+    claims = [{"text": "X [1]", "evidence": "miss", "citation": 1}]
+    chunks = [{"text": "khác", "title": "T", "source": "S", "chunk_type": "procedure",
+               "score": 0.8}]
+    res = verify_answer(claims, chunks, "", "procedure", backend="llm", verifier_chat=chat)
+    assert res["status"] == "error"
+
+
+# ---- generator T1 + verifier integration ----------------------------------
+# evidence deliberately NOT in the chunk -> bypasses the $0 fast-path, exercises backend
+_T1_REPLY = ('{"sentences": [{"text": "Bù dịch tinh thể 30ml/kg", '
+             '"evidence": "đoạn không có trong tài liệu", "citation": 1}], '
+             '"confidence": 0.8, "insufficient": false}')
+
+
+def _t1_chunks():
+    return [{"text": "Khuyến cáo bù dịch tinh thể 30ml/kg trong giờ đầu", "title": "T1",
+             "source": "S", "chunk_type": "procedure", "score": 0.7}]
+
+
+def test_generate_t1_verified_answer():
+    gen = _mock_chat(_T1_REPLY)
+    ver = _mock_chat('{"claims": [{"i": 0, "verdict": "supported", "is_safety": false}]}')
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    assert not resp["fallback"]
+    assert "[1]" in resp["answer"] and resp["citations"] == [1]
+    assert resp["verify"]["status"] == "ok"
+    ver.chat.assert_called_once()
+
+
+def test_generate_t1_fast_path_supported_without_verifier_call():
+    # evidence IS in the chunk -> $0 fast-path, verifier never called
+    gen = _mock_chat('{"sentences": [{"text": "Bù dịch tinh thể 30ml/kg", '
+                     '"evidence": "bù dịch tinh thể 30ml/kg", "citation": 1}], '
+                     '"insufficient": false}')
+    ver = MagicMock()
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    assert not resp["fallback"] and resp["citations"] == [1]
+    ver.chat.assert_not_called()
+
+
+def test_generate_t1_contradiction_falls_back():
+    gen = _mock_chat(_T1_REPLY)
+    ver = _mock_chat('{"claims": [{"i": 0, "verdict": "contradicted", "is_safety": false}]}')
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    assert resp["fallback"] and resp["fallback_reason"] == "verifier_contradicted"
+
+
+def test_generate_t1_fail_closed_for_contraindication():
+    gen = _mock_chat(_T1_REPLY)
+    ver = MagicMock()
+    ver.chat.side_effect = RuntimeError("verifier down")
+    resp = generate("q", "contraindication", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    assert resp["fallback"] and resp["fallback_reason"] == "verifier_unavailable_safety"
+
+
+def test_generate_t1_fail_open_with_banner():
+    gen = _mock_chat(_T1_REPLY)
+    ver = MagicMock()
+    ver.chat.side_effect = RuntimeError("verifier down")
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    assert not resp["fallback"]
+    assert "CHƯA được xác minh" in resp["answer"]
+    assert resp["verify"]["status"] == "unverified"
+
+
+# ---- logging ----------------------------------------------------------------
+def test_log_request_writes_jsonl(tmp_path):
+    import json as _json
+    log_request({"request_id": "abc", "query": "q"}, log_dir=tmp_path)
+    files = list(tmp_path.glob("rag-*.jsonl"))
+    assert len(files) == 1
+    rec = _json.loads(files[0].read_text(encoding="utf-8").strip())
+    assert rec["request_id"] == "abc" and "ts" in rec
 
 
 # ---- context builder --------------------------------------------------------

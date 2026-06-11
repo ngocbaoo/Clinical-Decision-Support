@@ -13,7 +13,8 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
-from rag.config import CHUNK_CHAR_CAP, DISCLAIMER  # noqa: E402
+from rag.config import CHUNK_CHAR_CAP  # noqa: E402
+from prompts import load_prompt  # noqa: E402
 
 
 def summarize_patient(ctx: dict, calc: dict) -> str:
@@ -89,29 +90,9 @@ def format_chunks(chunks: list[dict]) -> str:
     return "\n\n".join(blocks)
 
 
-SYSTEM_PROMPT = f"""\
-Bạn là trợ lý lâm sàng ICU hỗ trợ bác sĩ. CHỈ trả lời dựa trên các TÀI LIỆU \
-được đánh số và DỮ LIỆU BỆNH NHÂN được cung cấp — tuyệt đối không dùng kiến thức ngoài.
-
-Quy tắc bắt buộc:
-1. Mỗi khuyến nghị phải kèm trích dẫn [n] trỏ đến tài liệu tương ứng.
-2. Nếu có CẢNH BÁO DỊ ỨNG trong dữ liệu, nhắc lại cảnh báo đó ĐẦU TIÊN.
-3. Nếu tài liệu không đủ để trả lời, đặt "insufficient": true thay vì suy diễn.
-4. Điểm số lâm sàng (NEWS2/qSOFA/SOFA/eGFR/MAP) đã được tính sẵn — dùng đúng giá trị, không tự tính lại.
-5. Trả lời tiếng Việt, ngắn gọn (tối đa ~120 từ), bác sĩ đọc được trong 10 giây.
-6. Kết thúc câu trả lời bằng: "{DISCLAIMER}"
-
-Chỉ trả về JSON:
-{{"answer": "...", "citations": [1, 2], "confidence": 0.0-1.0, "insufficient": false}}
-"""
-
-
-SCORING_DIRECTIVE = (
-    "Đây là câu hỏi về ĐIỂM SỐ lâm sàng. Bắt buộc trả lời từ các điểm số đã tính "
-    "sẵn trong dữ liệu bệnh nhân (nêu rõ giá trị và mức nguy cơ); KHÔNG đặt "
-    "insufficient=true chỉ vì tài liệu không đề cập điểm số. Có thể dùng tài liệu "
-    "cho phần hướng xử trí nếu liên quan."
-)
+# Prompts live in src/prompts/generation.xml (see src/prompts/__init__.py).
+SYSTEM_PROMPT = load_prompt("generation")
+SCORING_DIRECTIVE = load_prompt("generation", section="scoring_directive")
 
 
 def build_messages(query: str, chunks: list[dict], patient_summary: str,

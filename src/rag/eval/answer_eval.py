@@ -34,6 +34,7 @@ from scoring.calculator import calculate_all  # noqa: E402
 from rag.config import GEN_MODEL, JUDGE_MODEL, CONF_THRESHOLD  # noqa: E402
 from rag.pipeline import RAGPipeline  # noqa: E402
 from rag.query_router import parse_json_loose  # noqa: E402
+from prompts import load_prompt  # noqa: E402
 
 OUT_JSON = CHUNKS_DIR / "rag_answer_eval.json"
 OUT_REPORT = CHUNKS_DIR / "rag_eval_report.md"
@@ -83,27 +84,8 @@ SCENARIOS = [
      "expect": "answer_or_fallback", "safety_alert_first": True},
 ]
 
-JUDGE_PROMPT = """\
-You are a strict clinical-AI evaluator. You receive a clinician's question, \
-patient data, numbered source documents, and an assistant's answer (Vietnamese). \
-The answer may only contain claims supported by the cited documents or the \
-patient data / pre-computed scores.
-
-The fixed safety disclaimer "Cần bác sĩ xác nhận trước khi thực hiện." and any \
-allergy-warning block are REQUIRED boilerplate — never treat them as clinical \
-claims. Pre-computed scores in the patient data (NEWS2/qSOFA/SOFA/eGFR/MAP) are \
-authoritative ground truth — claims restating them are supported.
-
-Evaluate:
-1. faithfulness: "pass" if EVERY clinical claim is supported by a cited document \
-or the patient data; "fail" otherwise. List unsupported claims.
-2. citation_precision: fraction (0-1) of citations [n] that genuinely support \
-the statements they are attached to.
-3. relevance: does the answer address the question? "yes"/"partial"/"no".
-
-Return ONLY JSON:
-{"faithfulness": "pass|fail", "unsupported_claims": ["..."], "citation_precision": 0.0, "relevance": "yes|partial|no", "notes": "..."}
-"""
+# Prompt lives in src/prompts/judge.xml.
+JUDGE_PROMPT = load_prompt("judge")
 
 
 def _outcome(resp: dict) -> str:
@@ -149,10 +131,11 @@ def _judge(judge: ChatClient, scenario: dict, result: dict,
     return parse_json_loose(reply)
 
 
-def run(only: str | None = None, use_judge: bool = True) -> dict:
+def run(only: str | None = None, use_judge: bool = True, gen_model: str = GEN_MODEL,
+        verify: bool = True, backend: str = "llm") -> dict:
     from rag.context_builder import summarize_patient
 
-    pipeline = RAGPipeline(gen_model=GEN_MODEL)
+    pipeline = RAGPipeline(gen_model=gen_model, verify=verify, backend=backend)
     judge = ChatClient(JUDGE_MODEL) if use_judge else None
 
     results = []
@@ -175,7 +158,7 @@ def run(only: str | None = None, use_judge: bool = True) -> dict:
                             "query": sc["query"], "patient": sc["patient"],
                             "expect": sc["expect"], "outcome": "error",
                             "error": str(err), "checks": {"behavior_ok": False},
-                            "judge": None, "timings_s": {"total": None},
+                            "judge": None, "timings_s": {"total": None}, "verify": None,
                             "answer": "", "citations": [], "cited_sources": [],
                             "fallback_reason": None, "intent": None})
             continue
@@ -240,6 +223,7 @@ def run(only: str | None = None, use_judge: bool = True) -> dict:
             "intent": run_res["routing"]["intent"],
             "checks": checks, "judge": verdict,
             "timings_s": run_res["timings_s"],
+            "verify": resp.get("verify"),
             "answer": resp["answer"],
             "citations": resp["citations"],
             "cited_sources": resp["cited_sources"],
@@ -264,6 +248,48 @@ def write_report(data: dict) -> None:
     latencies = sorted(r["timings_s"]["total"] for r in rows
                        if r["timings_s"].get("total") is not None)
     p50 = latencies[len(latencies) // 2] if latencies else None
+    p95 = latencies[max(0, int(len(latencies) * 0.95) - 1)] if latencies else None
+
+    # --- verifier-driven metrics ---
+    def _pct(num, den):
+        return f"{num}/{den}" + (f" ({round(100 * num / den)}%)" if den else "")
+
+    verified = [r for r in answers if (r.get("verify") or {}).get("unsupported_ratio")
+                is not None]
+    unsup = [r["verify"]["unsupported_ratio"] for r in verified]
+    unsup_mean = round(sum(unsup) / len(unsup), 3) if unsup else None
+    # per-branch fallback breakdown (verifier_* reasons)
+    branches = {}
+    for r in rows:
+        reason = r.get("fallback_reason") or ""
+        if reason.startswith("verifier_"):
+            branches[reason] = branches.get(reason, 0) + 1
+    # contraindication rate: safety scenarios where the safety check fired & led
+    safety_rows = [r for r in rows if any(
+        k in r["checks"] for k in ("allergy_first", "safety_alert_first", "contra_cited"))]
+    safety_ok = [r for r in safety_rows if all(
+        r["checks"].get(k) for k in ("allergy_first", "safety_alert_first", "contra_cited")
+        if k in r["checks"])]
+    # answer rate: in-scope scenarios that produced an answer (not fallback)
+    in_scope = [r for r in rows if r["expect"] in ("answer", "answer_or_fallback")]
+    answered = [r for r in in_scope if r["outcome"] == "answer"]
+    # answer relevance from judge (yes=1 / partial=0.5 / no=0)
+    rel_map = {"yes": 1.0, "partial": 0.5, "no": 0.0}
+    rels = [rel_map.get((r["judge"] or {}).get("relevance")) for r in judged]
+    rels = [x for x in rels if x is not None]
+    rel_mean = round(sum(rels) / len(rels), 2) if rels else None
+    # verifier overhead split by backend
+    overhead = {}
+    for r in answers:
+        v = r.get("verify") or {}
+        if v.get("elapsed_s") is not None:
+            overhead.setdefault(v.get("backend", "?"), []).append(v["elapsed_s"])
+    overhead_str = "; ".join(
+        f"{bk}: mean {round(sum(xs)/len(xs), 2)}s (n={len(xs)})"
+        for bk, xs in overhead.items()) or "n/a"
+    unsup_str = f"{unsup_mean} (n={len(unsup)})" if unsup_mean is not None else "n/a"
+    rel_str = str(rel_mean) if rel_mean is not None else "n/a"
+    cit_str = str(round(sum(cit_prec) / len(cit_prec), 2)) if cit_prec else "n/a"
 
     lines = [
         "# RAG Module — Evaluation Report",
@@ -307,9 +333,16 @@ def write_report(data: dict) -> None:
         f"**{sum(1 for r in answers if r['checks']['citation_ok'])}/{len(answers)}**",
         f"- Faithfulness (judge): **{len(faithful)}/{len(judged)} pass**"
         + (" — mọi verdict fail cần người xác nhận" if len(faithful) < len(judged) else ""),
-        f"- Citation precision (judge, mean): "
-        f"**{round(sum(cit_prec) / len(cit_prec), 2) if cit_prec else 'n/a'}**",
-        f"- Latency p50 (RAG-only): **{p50}s** (target < 4.5s)",
+        f"- Citation precision (judge, mean): **{cit_str}**",
+        f"- Unsupported sentence ratio (verifier, mean): **{unsup_str}**",
+        f"- Contraindication rate (safety alert/citation fired & led): "
+        f"**{_pct(len(safety_ok), len(safety_rows))}**",
+        f"- Answer rate (in-scope → answered, not fallback): "
+        f"**{_pct(len(answered), len(in_scope))}**",
+        f"- Answer relevance (judge yes/partial/no → 1/0.5/0, mean): **{rel_str}**",
+        f"- Verifier fallback breakdown: **{branches if branches else 'none'}**",
+        f"- Latency p50 / p95 (RAG-only): **{p50}s / {p95}s** (target p50 < 4.5s)",
+        f"- Verifier overhead by backend: **{overhead_str}**",
         "",
         "| ID | Tier-2 | Intent | Outcome | Checks | Judge |",
         "|----|--------|--------|---------|--------|-------|",
@@ -355,10 +388,15 @@ def write_report(data: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--no-judge", action="store_true")
+    parser.add_argument("--no-verify", action="store_true", help="ablation: skip verifier")
+    parser.add_argument("--gen-model", default=GEN_MODEL, help="generation model slug")
+    parser.add_argument("--backend", default="llm",
+                        help="verifier backend: llm | local_nli | hybrid")
     parser.add_argument("--only", help="run a single scenario id (e.g. A-01)")
     args = parser.parse_args()
 
-    data = run(only=args.only, use_judge=not args.no_judge)
+    data = run(only=args.only, use_judge=not args.no_judge, gen_model=args.gen_model,
+               verify=not args.no_verify, backend=args.backend)
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(data, ensure_ascii=False, indent=2),
                         encoding="utf-8")

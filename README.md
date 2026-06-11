@@ -20,7 +20,7 @@ src/
   embedding/            # chunker, embedder, retriever, or_client (OpenRouter embed + chat)
   fhir/                 # fhir_client.py (+ from_file/--file), generate_mock_patients.py
   scoring/              # calculator.py — MAP, qSOFA, SOFA, NEWS2, eGFR
-  rag/                  # ask.py CLI, pipeline, router, safety gate, generator
+  rag/                  # ask.py CLI, pipeline, router, safety gate, generator, verifier, openfda
     eval/               # gold_retrieval.json, retrieval_eval.py, answer_eval.py
 tests/                  # pytest unit tests (test_calculator.py, test_chunker.py, test_rag.py)
 data/
@@ -136,17 +136,31 @@ python src/rag/ask.py --file ... --query "..." --json             # machine-read
 ```
 
 Pipeline: LLM intent router (`query_router.py`) → safety-priority retrieval →
-allergy gate (`safety.py`, alert always renders first) → grounded generation
-(`generator.py`). The hallucination guard is **code-enforced**: a non-fallback
-answer without a valid `[n]` citation is replaced by the "Không đủ thông tin"
-fallback (F-RAG-09); scoring-intent answers are grounded in `calculate_all()`
-instead. Generation model: `qwen/qwen3.6-flash`; judge: `openai/gpt-5.4`
-(`src/rag/config.py`).
+safety gate (`safety.py` + OpenFDA contraindication/interaction checks, alert always
+renders first) → grounded generation (`generator.py`) → **claim-level faithfulness
+verifier** (`verifier.py`). The hallucination guard is **code-enforced**:
+
+- T1 generation emits per-sentence `{text, evidence, citation}`; a `$0` evidence-quote
+  fast-path trusts claims whose quote is literally in the cited chunk.
+- The verifier labels each remaining claim `supported | neutral | contradicted` (backend
+  `llm` = `openai/gpt-5.4-mini`, or offline `local_nli`/`hybrid`) and a code decision tree
+  decides keep / strip / fallback: any **contradiction**, any unsupported **safety** claim,
+  or a broken **ordered procedure** → fall back the whole answer; ordinary surplus is
+  stripped. Verifier outage → **fail-closed** for safety, **fail-open with a visible banner**
+  otherwise.
+- A non-fallback answer without a valid `[n]` citation is still replaced by the "Không đủ
+  thông tin" fallback (F-RAG-09); scoring-intent answers are grounded in `calculate_all()`.
+
+Generation: `qwen/qwen3.6-flash` (swap is the *last* lever — prove prompt+verifier first);
+verifier: `openai/gpt-5.4-mini`; judge: `openai/gpt-5.4` (`src/rag/config.py`). Every request
+writes a JSONL trace to `logs/rag-YYYYMMDD.jsonl`.
 
 **Evaluation:**
 ```powershell
 python src/rag/eval/retrieval_eval.py   # Hit@1 / Recall@5 / MRR on 45-query gold set
-python src/rag/eval/answer_eval.py      # 12 scenarios + GPT-5.4 judge -> chunks/rag_eval_report.md
+python src/rag/eval/nli_validation.py   # Phase-1: can a local NLI model be the verifier?
+python src/rag/eval/answer_eval.py      # scenarios + GPT-5.4 judge -> chunks/rag_eval_report.md
+#   ablation flags: --no-verify  --gen-model <slug>  --backend {llm,local_nli,hybrid}
 ```
 
 ---
@@ -156,9 +170,10 @@ python src/rag/eval/answer_eval.py      # 12 scenarios + GPT-5.4 judge -> chunks
 ```powershell
 pytest tests/ -v
 ```
-40 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
+73 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
 age-None (`test_calculator.py`), chunker schema/packing (`test_chunker.py`), and the RAG
-safety gate / citation guard / fallback contract with a mocked LLM (`test_rag.py`).
+safety gate / OpenFDA checks / citation guard / verifier decision tree / fallback contract
+with a mocked LLM (`test_rag.py`).
 
 ---
 

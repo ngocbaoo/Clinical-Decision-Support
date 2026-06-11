@@ -17,6 +17,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 from embedding.or_client import ChatClient  # noqa: E402
+from prompts import load_prompt  # noqa: E402
 
 INTENTS = ("procedure", "contraindication", "dosing", "scoring", "general", "off_topic")
 
@@ -26,30 +27,7 @@ _SAFETY_KW = ("chống chỉ định", "không được dùng", "không nên", "
 _DOSING_KW = ("liều", "dose", "dosing", "mg/kg", "điều chỉnh liều", "titrate")
 _SCORING_KW = ("news2", "qsofa", "sofa", "egfr", "map", "điểm", "score")
 
-_ROUTER_PROMPT = """\
-Bạn là bộ phân loại câu hỏi cho trợ lý lâm sàng ICU. Phân loại câu hỏi vào MỘT intent:
-- "procedure": hỏi quy trình / cách tiến hành / điều trị / xử trí
-- "contraindication": hỏi chống chỉ định, khi nào KHÔNG được làm / không nên dùng, rủi ro an toàn
-- "dosing": hỏi liều thuốc / điều chỉnh liều
-- "scoring": hỏi điểm số lâm sàng (NEWS2, qSOFA, SOFA, eGFR, MAP) của bệnh nhân
-- "general": câu hỏi y khoa ICU khác
-- "off_topic": KHÔNG liên quan y khoa
-
-Đồng thời liệt kê tên thuốc và tên thủ thuật được nhắc đến (giữ nguyên cách viết).
-
-Chỉ trả về JSON, không giải thích:
-{"intent": "...", "drugs": ["..."], "procedures": ["..."]}
-
-Ví dụ:
-Câu hỏi: "Bệnh nhân dị ứng Penicillin, dùng Amoxicillin được không?"
-{"intent": "contraindication", "drugs": ["Amoxicillin", "Penicillin"], "procedures": []}
-Câu hỏi: "Các bước tiến hành lọc máu liên tục?"
-{"intent": "procedure", "drugs": [], "procedures": ["lọc máu liên tục"]}
-Câu hỏi: "NEWS2 của bệnh nhân này bao nhiêu?"
-{"intent": "scoring", "drugs": [], "procedures": []}
-Câu hỏi: "Kết quả bóng đá tối qua thế nào?"
-{"intent": "off_topic", "drugs": [], "procedures": []}
-"""
+_ROUTER_PROMPT = load_prompt("router")
 
 
 def parse_json_loose(text: str) -> dict:

@@ -10,6 +10,7 @@ evaluation harness. Per-stage latencies are returned alongside the response.
 
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import chromadb
@@ -21,19 +22,29 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 from paths import CHROMA_PATH  # noqa: E402
 from embedding.or_client import ChatClient, EmbeddingClient, DEFAULT_MODEL  # noqa: E402
 from embedding.retriever import COLLECTION_NAME, retrieve  # noqa: E402
-from rag.config import GEN_MODEL, TOP_K  # noqa: E402
+from rag.config import (GEN_MODEL, TOP_K, VERIFIER_BACKEND,  # noqa: E402
+                        VERIFIER_MODEL, VERIFY_ENABLED)
 from rag.generator import generate  # noqa: E402
+from rag.logging_utils import log_request  # noqa: E402
 from rag.query_router import route  # noqa: E402
 from rag.safety import (check_allergies, check_contraindications,  # noqa: E402
                         check_drug_interactions)
 
 
 class RAGPipeline:
-    def __init__(self, gen_model: str = GEN_MODEL):
+    def __init__(self, gen_model: str = GEN_MODEL, *, verify: bool = VERIFY_ENABLED,
+                 backend: str = VERIFIER_BACKEND):
         client = chromadb.PersistentClient(path=str(CHROMA_PATH))
         self.collection = client.get_collection(COLLECTION_NAME)
         self.embedder = EmbeddingClient(DEFAULT_MODEL)
+        self.gen_model = gen_model
         self.chat = ChatClient(gen_model)
+        # Verifier uses a DIFFERENT family from the qwen generator (gpt-5.4-mini) to avoid
+        # correlated errors. local_nli needs no chat client. Disabled -> no verification.
+        self.backend = backend
+        self.verify = verify
+        self.verifier = (ChatClient(VERIFIER_MODEL)
+                         if verify and backend in ("llm", "hybrid") else None)
 
     def retrieve_for_intent(self, query: str, intent: str,
                             n_results: int = TOP_K) -> list[dict]:
@@ -83,10 +94,41 @@ class RAGPipeline:
         timings["safety"] = round(time.perf_counter() - t, 2)
 
         t = time.perf_counter()
+        verifier_chat = self.verifier if self.verify else None
         response = generate(query, routing["intent"], chunks,
-                            patient_context or {}, calc or {}, alerts, self.chat)
+                            patient_context or {}, calc or {}, alerts, self.chat,
+                            verifier_chat=verifier_chat,
+                            backend=self.backend if self.verify else "llm")
         timings["generation"] = round(time.perf_counter() - t, 2)
         timings["total"] = round(sum(timings.values()), 2)
+        # verify is a sub-stage of generation; reported separately, not double-summed.
+        timings["verify"] = (response.get("verify") or {}).get("elapsed_s", 0.0)
 
-        return {"response": response, "routing": routing, "timings_s": timings,
-                "chunks": chunks}
+        request_id = uuid.uuid4().hex[:12]
+        result = {"request_id": request_id, "response": response, "routing": routing,
+                  "timings_s": timings, "chunks": chunks}
+        self._log(query, result, patient_context)
+        return result
+
+    def _log(self, query: str, result: dict, patient_context: dict | None) -> None:
+        resp = result["response"]
+        log_request({
+            "request_id": result["request_id"],
+            "query": query,
+            "has_patient": bool(patient_context),
+            "routing": result["routing"],
+            "retrieved": [{"source": c.get("source"), "title": c.get("title"),
+                           "score": round(c.get("score", 0.0), 4),
+                           "chunk_type": c.get("chunk_type")}
+                          for c in result["chunks"]],
+            "alerts": [{"type": a.get("type", "allergy"),
+                        "drug": a.get("drug") or a.get("drug_a")} for a in resp["alerts"]],
+            "verify": resp.get("verify"),
+            "fallback": resp["fallback"],
+            "fallback_reason": resp["fallback_reason"],
+            "citations": resp["citations"],
+            "answer": resp["answer"],
+            "timings_s": result["timings_s"],
+            "models": {"gen": self.gen_model,
+                       "verifier_backend": self.backend if self.verify else None},
+        })

@@ -1,8 +1,22 @@
-chromadb>=0.5.0
-openai>=1.40.0
-python-dotenv>=1.0.0
-tqdm>=4.66.0
-pandas>=2.0.0
-requests>=2.31.0
-python-dateutil>=2.8.0
+# Core runtime — RAG pipeline, FHIR, scoring, embedding/vector store
+chromadb>=0.5.0            # persistent vector store (clinical_knowledge collection)
+openai>=1.40.0             # OpenRouter client (embeddings + chat, OpenAI-compatible)
+python-dotenv>=1.0.0       # loads OPEN_ROUTER_KEY from .env
+requests>=2.31.0           # FHIR client HTTP (OpenFDA uses stdlib urllib)
+python-dateutil>=2.8.0     # age / date math in fhir_client
+pandas>=2.0.0              # build_clinical_db (LOINC + ICD-10 -> SQLite)
+markitdown>=0.0.1          # PDF -> markdown in preprocessing/extract_pdf.py
+tqdm>=4.66.0               # progress bars in long-running pipeline scripts
+
+# Tests
 pytest>=8.0.0
+
+# --- OPTIONAL: local NLI verifier backend (Phase-1 spike + local_nli/hybrid) ---
+# NOT installed by default — the project is deliberately torch-free (embeddings go via
+# OpenRouter). Install ONLY if the Phase-1 gate (src/rag/eval/nli_validation.py) selects a
+# local backend. ONNX is preferred over full torch.
+#
+#   ONNX (preferred, no torch):
+#     pip install "optimum[onnxruntime]>=1.20.0" transformers>=4.40.0 scipy>=1.11.0 numpy>=1.24.0
+#   or CPU torch fallback:
+#     pip install transformers>=4.40.0 torch>=2.2.0
