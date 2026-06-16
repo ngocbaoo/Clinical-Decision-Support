@@ -9,3 +9,4 @@ chunks/
 note.txt
 .pytest_cache
 docs/
+logs/
