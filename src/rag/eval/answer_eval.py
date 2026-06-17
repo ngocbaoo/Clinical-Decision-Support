@@ -232,7 +232,7 @@ def run(only: str | None = None, use_judge: bool = True, gen_model: str = GEN_MO
         reason = f" reason={resp['fallback_reason']}" if resp["fallback_reason"] else ""
         print(f"    [{flag}] outcome={outcome}{reason} checks={checks}",
               file=sys.stderr)
-    return {"results": results}
+    return {"results": results, "gen_model": gen_model}
 
 
 def write_report(data: dict) -> None:
@@ -293,7 +293,7 @@ def write_report(data: dict) -> None:
 
     lines = [
         "# RAG Module — Evaluation Report",
-        f"**Ngày:** {date.today()} · **Generation:** `{GEN_MODEL}` · "
+        f"**Ngày:** {date.today()} · **Generation:** `{data.get('gen_model', GEN_MODEL)}` · "
         f"**Judge:** `{JUDGE_MODEL}` · **Threshold:** {CONF_THRESHOLD}",
         "",
         "## 1. Retrieval quality (gold set)",

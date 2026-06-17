@@ -22,8 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 from paths import CHROMA_PATH  # noqa: E402
 from embedding.or_client import ChatClient, EmbeddingClient, DEFAULT_MODEL  # noqa: E402
 from embedding.retriever import COLLECTION_NAME, retrieve  # noqa: E402
-from rag.config import (GEN_MODEL, TOP_K, VERIFIER_BACKEND,  # noqa: E402
-                        VERIFIER_MODEL, VERIFY_ENABLED)
+from rag.config import (GEN_MODEL, GEN_REASONING_ENABLED, TOP_K,  # noqa: E402
+                        VERIFIER_BACKEND, VERIFIER_MODEL, VERIFY_ENABLED)
 from rag.generator import generate  # noqa: E402
 from rag.logging_utils import log_request  # noqa: E402
 from rag.query_router import route  # noqa: E402
@@ -38,7 +38,9 @@ class RAGPipeline:
         self.collection = client.get_collection(COLLECTION_NAME)
         self.embedder = EmbeddingClient(DEFAULT_MODEL)
         self.gen_model = gen_model
-        self.chat = ChatClient(gen_model)
+        # Reasoning disabled on the generation/router client = ~7x faster generation on
+        # qwen3.6 (the hidden CoT dominates latency); the verifier client keeps its default.
+        self.chat = ChatClient(gen_model, reasoning=GEN_REASONING_ENABLED)
         # Verifier uses a DIFFERENT family from the qwen generator (gpt-5.4-mini) to avoid
         # correlated errors. local_nli needs no chat client. Disabled -> no verification.
         self.backend = backend

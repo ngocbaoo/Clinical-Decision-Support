@@ -222,6 +222,10 @@ def test_generate_below_threshold_falls_back():
                     threshold=0.45)
     assert resp["fallback"] and FALLBACK_TEXT in resp["answer"]
     chat.chat.assert_not_called()
+    # Regression: the below-threshold branch must put the score in `confidence`, not
+    # `verify` — a float in `verify` crashes pipeline.ask (response["verify"].get(...)).
+    assert resp["verify"] is None
+    assert resp["confidence"] == 0.2
 
 
 def test_generate_valid_answer_with_citations():

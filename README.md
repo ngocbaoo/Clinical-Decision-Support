@@ -151,9 +151,16 @@ verifier** (`verifier.py`). The hallucination guard is **code-enforced**:
 - A non-fallback answer without a valid `[n]` citation is still replaced by the "Không đủ
   thông tin" fallback (F-RAG-09); scoring-intent answers are grounded in `calculate_all()`.
 
-Generation: `qwen/qwen3.6-flash` (swap is the *last* lever — prove prompt+verifier first);
-verifier: `openai/gpt-5.4-mini`; judge: `openai/gpt-5.4` (`src/rag/config.py`). Every request
-writes a JSONL trace to `logs/rag-YYYYMMDD.jsonl`.
+Generation: `qwen/qwen3.6-flash` with **reasoning disabled** (`GEN_REASONING_ENABLED = False`).
+qwen3.6 is a reasoning model whose hidden chain-of-thought is ~90% of completion tokens and
+dominated latency; disabling it cut generation ~7× (total p50 ~32s → ~8–12s) and, unexpectedly,
+raised citation precision 0.69 → ~0.88 (≈ the `plus` model). The latency win is solid; the
+**model choice (flash) is a provisional default, not frozen** — the quality numbers rest on small
+n (2 runs, 5–9 in-scope/run) and the real remaining blocker (answer rate 45–55%) plus independent
+validation (NLI set, human-review) haven't landed. `plus` stays reachable via `--gen-model`. See
+`docs/RAG_REPORT.md` §8.3 / §11.
+Verifier: `openai/gpt-5.4-mini`; judge: `openai/gpt-5.4` (`src/rag/config.py`). Every request
+writes a JSONL trace to `logs/rag-YYYYMMDD.jsonl`. Latency probe: `python src/rag/eval/latency_probe.py`.
 
 **Evaluation:**
 ```powershell
@@ -165,15 +172,36 @@ python src/rag/eval/answer_eval.py      # scenarios + GPT-5.4 judge -> chunks/ra
 
 ---
 
+## Web app (patient-scoped chat)
+
+A React SPA + FastAPI backend over the pipeline: **select a patient first**, then chat scoped
+to that patient — the assistant loads the patient's FHIR profile and opens with a grounded
+assessment before any question (every message carries patient context; single-turn).
+
+```powershell
+# 1. Backend (FastAPI; uvicorn already a dep). Serves /api/* and, if built, the SPA at /.
+uvicorn web.app:app --app-dir src --reload          # http://localhost:8000
+
+# 2. Frontend dev server (separate terminal)
+cd frontend; npm install; npm run dev               # http://localhost:5173
+#    prod bundle instead: npm run build  -> backend then serves it at http://localhost:8000/
+```
+
+Endpoints: `GET /api/patients`, `GET /api/patients/{id}` (profile), `POST …/assessment`
+(opening AI assessment), `POST …/chat` (`{query}`). The backend (`src/web/app.py`) is a pure
+consumer — no pipeline changes. **Note:** per-patient context/assessment caches are valid only
+because the mock bundles are static; on live FHIR they must be removed or short-TTL'd (stale ICU
+data = safety bug). Deep-link refresh on the static-served SPA needs the Vite dev server.
+
 ## Tests
 
 ```powershell
 pytest tests/ -v
 ```
-73 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
-age-None (`test_calculator.py`), chunker schema/packing (`test_chunker.py`), and the RAG
-safety gate / OpenFDA checks / citation guard / verifier decision tree / fallback contract
-with a mocked LLM (`test_rag.py`).
+78 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
+age-None (`test_calculator.py`), chunker schema/packing (`test_chunker.py`), the RAG safety
+gate / OpenFDA checks / citation guard / verifier decision tree / fallback contract with a
+mocked LLM (`test_rag.py`), and the web API catalog/profile endpoints offline (`test_web.py`).
 
 ---
 

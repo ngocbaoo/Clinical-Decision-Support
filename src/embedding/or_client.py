@@ -86,18 +86,28 @@ class EmbeddingClient:
 class ChatClient:
     """Thin wrapper over the OpenRouter chat-completions endpoint."""
 
-    def __init__(self, model_name: str = DEFAULT_CHAT_MODEL):
+    def __init__(self, model_name: str = DEFAULT_CHAT_MODEL,
+                 reasoning: bool | None = None):
         api_key = os.getenv("OPEN_ROUTER_KEY")
         if not api_key:
             raise RuntimeError(
                 "OPEN_ROUTER_KEY not found in environment / .env at repo root."
             )
         self.model_name = model_name
+        # reasoning: None = provider default (on for reasoning models); False = disable the
+        # hidden chain-of-thought (huge latency win on qwen3.6 — see config.GEN_REASONING_ENABLED).
+        self.reasoning = reasoning
         self.client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
+        # Token usage of the most recent successful chat() call, or None. Lets callers
+        # (latency_probe) split generation into prefill (prompt_tokens) vs decode
+        # (completion_tokens) without changing chat()'s return type.
+        self.last_usage: dict | None = None
 
     def chat(self, messages: list[dict], temperature: float = 0.1,
              max_tokens: int = 1200, max_retries: int = 3) -> str:
         """Send a chat-completion request; returns the assistant text."""
+        extra = ({"extra_body": {"reasoning": {"enabled": False}}}
+                 if self.reasoning is False else {})
         last_err: Exception | None = None
         for attempt in range(max_retries):
             try:
@@ -106,10 +116,15 @@ class ChatClient:
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    **extra,
                 )
                 content = resp.choices[0].message.content
                 if content is None:
                     raise RuntimeError("empty completion")
+                u = getattr(resp, "usage", None)
+                self.last_usage = ({"prompt_tokens": getattr(u, "prompt_tokens", None),
+                                    "completion_tokens": getattr(u, "completion_tokens", None)}
+                                   if u else None)
                 return content
             except Exception as err:  # transient network / rate-limit
                 last_err = err

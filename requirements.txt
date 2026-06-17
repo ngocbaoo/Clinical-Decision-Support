@@ -8,6 +8,10 @@ pandas>=2.0.0              # build_clinical_db (LOINC + ICD-10 -> SQLite)
 markitdown>=0.0.1          # PDF -> markdown in preprocessing/extract_pdf.py
 tqdm>=4.66.0               # progress bars in long-running pipeline scripts
 
+# Web app (patient-scoped SPA over the pipeline — src/web/app.py)
+fastapi>=0.110.0           # API; uvicorn (already present) serves it
+uvicorn>=0.29.0            # ASGI server: uvicorn web.app:app --app-dir src
+
 # Tests
 pytest>=8.0.0
 

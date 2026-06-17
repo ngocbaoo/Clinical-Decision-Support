@@ -124,17 +124,25 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
     if not is_scoring and (not chunks or top_score < threshold):
         return _response(FALLBACK_TEXT, [], chunks, alerts, True,
                          f"retrieval_below_threshold (top={top_score:.2f} < {threshold})",
-                         None, top_score)
+                         top_score)
 
     summary = summarize_patient(patient_context, calc)
     messages = build_messages(query, chunks, summary, format_alerts(alerts),
                               intent=intent)
-    try:
-        reply = chat.chat(messages, temperature=0.1, max_tokens=900)
-        data = parse_json_loose(reply)
-    except Exception as err:
+    # The model occasionally emits malformed JSON (more so with reasoning disabled). One
+    # retry is now cheap (~3s without reasoning vs ~24s with) and recovers these instead of
+    # falling back. max_tokens is generous so a long procedure's JSON can't truncate.
+    data, last_err = None, None
+    for _attempt in range(2):
+        try:
+            reply = chat.chat(messages, temperature=0.1, max_tokens=1500)
+            data = parse_json_loose(reply)
+            break
+        except Exception as err:
+            last_err = err
+    if data is None:
         return _response(FALLBACK_TEXT, [], chunks, alerts, True,
-                         f"generation_error: {err}", top_score)
+                         f"generation_error: {last_err}", top_score)
 
     insufficient = (data.get("insufficient") and not is_scoring)
     claims, mode = _parse_claims(data)
@@ -169,6 +177,12 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
                         "is_ordered_procedure", "fallback_reason")}
         verify_meta["elapsed_s"] = round(time.perf_counter() - _t, 2)
         verify_meta["backend"] = backend
+        # Per-claim audit trail (text/citation/verdict/safety from decide(), joined with the
+        # model's self-declared evidence quote) — needed to human-review fallbacks.
+        verify_meta["verdicts"] = [
+            {**v, "evidence": (claims[i].get("evidence") or "")[:200]}
+            for i, v in enumerate(result.get("verdicts") or [])
+        ]
         if result["status"] == "error":
             # Fail-CLOSED for safety-critical answers; fail-OPEN (banner) otherwise.
             safety_critical = intent == "contraindication" or bool(alerts) or any(
