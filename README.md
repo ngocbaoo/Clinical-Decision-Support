@@ -193,6 +193,32 @@ consumer — no pipeline changes. **Note:** per-patient context/assessment cache
 because the mock bundles are static; on live FHIR they must be removed or short-TTL'd (stale ICU
 data = safety bug). Deep-link refresh on the static-served SPA needs the Vite dev server.
 
+## ASR bake-off (voice input — model selection)
+
+The PRD calls for voice input (push-to-talk → transcript confirm → query). To pick the ASR model
+empirically, `src/asr/` runs the two MultiMed-ST whisper-small fine-tunes head-to-head on
+Vietnamese **drug-name** audio:
+
+```powershell
+# one-time deps (see requirements.txt OPTIONAL block; CUDA torch for the GPU)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
+pip install transformers jiwer soundfile librosa datasets gTTS
+
+python src/asr/eval/gen_audio.py                            # render VN drug sentences (gTTS, 2 rates)
+python src/asr/eval/asr_bakeoff.py --initial-prompt --real 8   # both models, raw vs recoverable
+```
+
+**The real lever is post-ASR, not the model.** ASR errors on drug names are near-miss phonetic
+garbles ("profile"→Propofol), so a fuzzy **matcher** (`src/asr/drug_match.py`, rapidfuzz,
+**suggest-only**) recovers the intended drug for the doctor to confirm, and a Whisper
+**initial_prompt** biases toward ICU drug vocabulary. The KPI is **recoverable recall** (would the
+right drug be offered?), not raw ASR. Result (`chunks/asr_bakeoff_report.md`, 2026-06-18):
+matcher + prompt turn ~30% raw drug recall into **93.5% recoverable** (whisper-multilingual);
+prompt alone also ~halves WER (0.47→0.22). `whisper-multilingual` is the pick (`ASR_MODEL`),
+**provisional** until confirmed on real voice (`data/asr_probe/README.md`). The matcher SUGGESTS
+only — never auto-rewrites a drug name. Torch is **isolated to `src/asr/*`**; the RAG core and the
+offline tests stay torch-free.
+
 ## Tests
 
 ```powershell

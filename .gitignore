@@ -10,3 +10,6 @@ note.txt
 .pytest_cache
 docs/
 logs/
+data/asr_test/
+data/asr_probe/*
+!data/asr_probe/README.md

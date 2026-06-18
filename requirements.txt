@@ -15,6 +15,15 @@ uvicorn>=0.29.0            # ASGI server: uvicorn web.app:app --app-dir src
 # Tests
 pytest>=8.0.0
 
+# --- OPTIONAL: voice ASR module (src/asr/*) — MultiMed-ST whisper bake-off ---
+# NOT installed by default. This is the ONE place that needs torch; it is isolated to src/asr/*
+# (the RAG/embedding core stays torch-free). For the RTX 3050 Ti install the CUDA build of torch:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+#   pip install transformers>=4.40.0 jiwer>=3.0.0 soundfile>=0.12.0 librosa>=0.10.0 \
+#               datasets>=2.18.0 gTTS>=2.5.0
+# gTTS renders the Vietnamese drug-name test audio; datasets pulls real MultiMed-ST clips for a
+# reference WER. Run: python src/asr/eval/gen_audio.py  then  python src/asr/eval/asr_bakeoff.py
+
 # --- OPTIONAL: local NLI verifier backend (Phase-1 spike + local_nli/hybrid) ---
 # NOT installed by default — the project is deliberately torch-free (embeddings go via
 # OpenRouter). Install ONLY if the Phase-1 gate (src/rag/eval/nli_validation.py) selects a
