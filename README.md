@@ -219,6 +219,18 @@ prompt alone also ~halves WER (0.47→0.22). `whisper-multilingual` is the pick 
 only — never auto-rewrites a drug name. Torch is **isolated to `src/asr/*`**; the RAG core and the
 offline tests stay torch-free.
 
+**Push-to-talk in the web app (live).** The chat composer has a 🎙 button: the browser captures mic
+audio and encodes a mono WAV in-page (`frontend/src/audio.js` — Web Audio API, no MediaRecorder/webm
+so the backend needs no ffmpeg) and POSTs the raw blob to `POST /api/asr/transcribe`. That endpoint
+lazily loads the chosen model (torch stays out of the offline path — same lazy pattern as the RAG
+pipeline), transcribes with the drug-name `initial_prompt`, and returns `{text, latency_s,
+suggestions}`. The transcript lands in the **editable** input — it is **never auto-sent** (the
+doctor reviews and presses Gửi: F-ASR-04/05). Matcher suggestions render as click-to-apply hint
+chips below the composer; clicking one replaces the misheard span in the box (doctor-initiated,
+suggest-only). Note: at the current `SCORE_FLOOR`, common Vietnamese words can produce a few
+spurious chips — display-threshold calibration is deferred to the real-voice probe, deliberately
+not retuned here.
+
 ## Tests
 
 ```powershell
@@ -228,12 +240,3 @@ pytest tests/ -v
 age-None (`test_calculator.py`), chunker schema/packing (`test_chunker.py`), the RAG safety
 gate / OpenFDA checks / citation guard / verifier decision tree / fallback contract with a
 mocked LLM (`test_rag.py`), and the web API catalog/profile endpoints offline (`test_web.py`).
-
----
-
-## Conventions
-- Modules force UTF-8 stdout for Vietnamese on Windows consoles.
-- New `src/<pkg>` modules: add `__init__.py`, bootstrap `src/` onto `sys.path`, import shared
-  paths from `paths`.
-- Mock FHIR bundles under `data/mock/` are committed (they replace the sandbox); other `data/`,
-  `db/`, `chroma_db/`, `chunks/` artifacts are gitignored.

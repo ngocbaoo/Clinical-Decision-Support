@@ -9,13 +9,14 @@ This module is a pure CONSUMER of the pipeline — it changes nothing in src/rag
 src/scoring. Run:  uvicorn web.app:app --app-dir src --reload
 """
 
+import io
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
@@ -53,6 +54,21 @@ def get_pipeline():
         from rag.pipeline import RAGPipeline
         _pipeline = RAGPipeline()  # config defaults: flash + reasoning-off, verifier on
     return _pipeline
+
+
+# ASR is loaded just as lazily as the pipeline: the heavy torch/transformers import and the
+# multi-GB whisper checkpoint never touch the offline catalog/profile path (or the offline tests).
+# It is built on the first /api/asr/transcribe call. Keeps the no-torch isolation of src/asr/* intact.
+_transcriber = None
+
+
+def get_transcriber():
+    global _transcriber
+    if _transcriber is None:
+        from asr.config import ASR_MODEL
+        from asr.transcriber import WhisperTranscriber
+        _transcriber = WhisperTranscriber(ASR_MODEL)
+    return _transcriber
 
 
 def _ctx_for(pid: str) -> tuple[dict, dict]:
@@ -175,6 +191,36 @@ def chat(pid: str, body: ChatIn):
     if not query:
         raise HTTPException(status_code=400, detail="empty query")
     return _shape_answer(get_pipeline().ask(query, ctx, calc))
+
+
+@app.post("/api/asr/transcribe")
+async def asr_transcribe(request: Request):
+    """Push-to-talk → transcript. The client posts a raw mono WAV blob (Content-Type audio/wav);
+    we read it with soundfile (no python-multipart / ffmpeg needed), transcribe with the drug-name
+    initial_prompt bias, and run the SUGGEST-only drug matcher. Returns {text, latency_s,
+    suggestions} — the UI puts `text` in an EDITABLE box and shows suggestions as hints. It NEVER
+    auto-sends and NEVER rewrites the transcript: the doctor confirms (F-ASR-04/05, Risk #1)."""
+    import numpy as np
+    import soundfile as sf
+
+    from asr.drug_lexicon import PROMPT_DRUGS
+    from asr.drug_match import suggest_drugs
+
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty audio")
+    try:
+        audio, sr = sf.read(io.BytesIO(raw), dtype="float32")
+    except Exception as exc:  # unreadable / unsupported container
+        raise HTTPException(status_code=400, detail=f"unreadable audio: {exc}")
+    if getattr(audio, "ndim", 1) > 1:  # downmix stereo → mono
+        audio = audio.mean(axis=1)
+    if audio.size == 0:
+        raise HTTPException(status_code=400, detail="silent / zero-length audio")
+
+    result = get_transcriber().transcribe(np.ascontiguousarray(audio), sr, prompt=PROMPT_DRUGS)
+    return {"text": result["text"], "latency_s": result["latency_s"],
+            "suggestions": suggest_drugs(result["text"])}
 
 
 # Serve the built SPA (prod = one server). Mounted last so /api/* wins. Dev uses Vite instead.

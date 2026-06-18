@@ -23,3 +23,12 @@ export const sendChat = (pid, query) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
   }).then(json);
+
+// Push-to-talk: POST the raw WAV blob, get back {text, latency_s, suggestions}. The UI puts
+// `text` into the editable composer — it is never auto-sent.
+export const transcribeAudio = (blob) =>
+  fetch(`${BASE}/api/asr/transcribe`, {
+    method: "POST",
+    headers: { "Content-Type": "audio/wav" },
+    body: blob,
+  }).then(json);

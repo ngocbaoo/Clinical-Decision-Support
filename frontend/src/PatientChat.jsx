@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getProfile, getAssessment, sendChat } from "./api.js";
+import { getProfile, getAssessment, sendChat, transcribeAudio } from "./api.js";
+import { createRecorder } from "./audio.js";
 
 // Turn a backend answer payload into a chat message. A fallback is a DELIBERATE safety
 // refusal, so it gets its own emphasized kind — never a muted/error look.
@@ -17,7 +18,11 @@ export default function PatientChat() {
   const [openerLoading, setOpenerLoading] = useState(true);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [suggestions, setSuggestions] = useState([]);
   const scrollRef = useRef(null);
+  const recorderRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -39,7 +44,7 @@ export default function PatientChat() {
     const q = input.trim();
     if (!q || busy) return;
     setMessages((m) => [...m, { role: "user", answer: q }]);
-    setInput(""); setBusy(true);
+    setInput(""); setSuggestions([]); setBusy(true);
     try {
       const resp = await sendChat(pid, q);
       setMessages((m) => [...m, toMessage(resp)]);
@@ -48,6 +53,44 @@ export default function PatientChat() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Push-to-talk: toggle record. On stop we transcribe and drop the text into the EDITABLE box —
+  // never auto-send (the doctor confirms, F-ASR-04/05). Drug suggestions are hints only.
+  async function toggleRecord() {
+    if (busy || transcribing) return;
+    if (!recording) {
+      try {
+        const rec = createRecorder();
+        await rec.start();
+        recorderRef.current = rec;
+        setRecording(true);
+      } catch (err) {
+        setMessages((m) => [...m, { role: "ai", kind: "error",
+          answer: `Không truy cập được micro: ${err.message}` }]);
+      }
+      return;
+    }
+    setRecording(false);
+    setTranscribing(true);
+    try {
+      const blob = await recorderRef.current.stop();
+      const resp = await transcribeAudio(blob);
+      setInput((cur) => (cur ? `${cur} ` : "") + resp.text);
+      setSuggestions(resp.suggestions || []);
+    } catch (err) {
+      setMessages((m) => [...m, { role: "ai", kind: "error",
+        answer: `Lỗi nhận dạng giọng nói: ${err.message}` }]);
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  // Doctor-initiated correction: replace the misheard span with the suggested drug name in the
+  // editable box. We only touch the box if the span is still present (doctor hasn't edited it) —
+  // we never rewrite silently.
+  function applySuggestion(span, name) {
+    setInput((cur) => (span && cur.includes(span) ? cur.replace(span, name) : cur));
   }
 
   return (
@@ -65,11 +108,41 @@ export default function PatientChat() {
           {openerLoading && <div className="msg msg-ai loading">Đang đánh giá bệnh nhân…</div>}
           {busy && <div className="msg msg-ai loading">Đang phân tích…</div>}
         </div>
+        {suggestions.length > 0 && (
+          <div className="drug-suggest">
+            <span className="drug-suggest-head">💊 Gợi ý tên thuốc (hãy kiểm tra trước khi gửi):</span>
+            {suggestions.map((s, i) => (
+              <span key={i} className="drug-suggest-group">
+                <button type="button" className="drug-chip"
+                  title={`nghe ra "${s.span}" → đề xuất ${s.suggestion}`}
+                  onClick={() => applySuggestion(s.span, s.suggestion)}>
+                  {s.suggestion}
+                </button>
+                {s.alternatives?.map((alt) => (
+                  <button key={alt} type="button" className="drug-chip drug-chip-alt"
+                    onClick={() => applySuggestion(s.span, alt)}>
+                    {alt}?
+                  </button>
+                ))}
+              </span>
+            ))}
+          </div>
+        )}
         <form className="composer" onSubmit={submit}>
+          <button
+            type="button"
+            className={`mic-btn${recording ? " recording" : ""}`}
+            onClick={toggleRecord}
+            disabled={busy || transcribing}
+            title={recording ? "Dừng ghi âm" : "Nói câu hỏi"}
+          >
+            {recording ? "⏹" : transcribing ? "…" : "🎙"}
+          </button>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Hỏi về bệnh nhân này…"
+            placeholder={recording ? "Đang nghe… nhấn ⏹ để dừng"
+              : transcribing ? "Đang nhận dạng giọng nói…" : "Hỏi về bệnh nhân này…"}
             disabled={busy}
           />
           <button type="submit" disabled={busy || !input.trim()}>Gửi</button>
