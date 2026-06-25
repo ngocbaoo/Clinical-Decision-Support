@@ -19,6 +19,7 @@ Deps: pip install optimum[onnxruntime] transformers   (ONNX, no torch)
       — or — pip install transformers torch            (CPU torch fallback)
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -77,90 +78,120 @@ HAND_LABELED = [
 ]
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # src/ on sys.path
+import time  # noqa: E402
+
+
 def load_nli():
-    """Return an nli(premise, hypothesis) -> (label, confidence) callable.
-
-    Prefers ONNX Runtime (optimum) to keep the project torch-free; falls back to a
-    transformers/torch pipeline; raises with install guidance if neither is available.
-    """
-    model_id = "MoritzLaurer/mDeBERTa-v3-base-mnli-xnli"
-    try:  # ONNX path — no torch at inference time
-        from optimum.onnxruntime import ORTModelForSequenceClassification
-        from transformers import AutoTokenizer
-        import scipy.special as sp  # noqa: F401  (softmax)
-        tok = AutoTokenizer.from_pretrained(model_id)
-        model = ORTModelForSequenceClassification.from_pretrained(model_id, export=True)
-        id2label = model.config.id2label
-
-        def _nli(premise, hypothesis):
-            import numpy as np
-            inp = tok(premise, hypothesis, return_tensors="np", truncation=True,
-                      max_length=512)
-            logits = model(**inp).logits[0]
-            probs = np.exp(logits) / np.exp(logits).sum()
-            idx = int(probs.argmax())
-            return id2label[idx].lower(), float(probs[idx])
-        return _nli, "onnx"
-    except Exception as onnx_err:  # noqa: BLE001
-        try:
-            from transformers import pipeline
-            pipe = pipeline("text-classification", model=model_id, top_k=None)
-
-            def _nli(premise, hypothesis):
-                out = pipe({"text": premise, "text_pair": hypothesis})
-                best = max(out, key=lambda d: d["score"])
-                return best["label"].lower(), float(best["score"])
-            return _nli, "torch"
-        except Exception as torch_err:  # noqa: BLE001
-            raise RuntimeError(
-                "No local NLI runtime available.\n"
-                "  ONNX (preferred): pip install optimum[onnxruntime] transformers scipy\n"
-                "  or torch:         pip install transformers torch\n"
-                f"  (onnx error: {onnx_err}\n   torch error: {torch_err})")
+    """Return the production int8 LocalNLI (src/rag/nli_local.py) — the exact callable the
+    verifier uses. Build it first with `python src/rag/nli_local.py` if it's missing."""
+    from rag.nli_local import LocalNLI
+    return LocalNLI(), "onnx-int8"
 
 
 _LABEL_TO_VERDICT = {"entailment": "supported", "contradiction": "contradicted",
                      "neutral": "neutral"}
 
 
-def main():
-    nli, runtime = load_nli()
-    print(f"NLI runtime: {runtime}\n")
-    confusion = {}  # (gold, pred) -> count
-    false_supported_on_contra = 0
-    correct = 0
+def _gate(nli):
+    """Hand-labeled GOLD gate — the real safety bar (negation/dose/timing)."""
+    confusion, false_supported_on_contra, correct, lat = {}, 0, 0, []
+    print("--- Hand-labeled gold gate (negation/dose/timing) ---")
     for row in HAND_LABELED:
+        t = time.perf_counter()
         label, conf = nli(row["premise"], row["claim"])
+        lat.append((time.perf_counter() - t) * 1000)
         pred = _LABEL_TO_VERDICT.get(label, "neutral")
         confusion[(row["gold"], pred)] = confusion.get((row["gold"], pred), 0) + 1
         ok = pred == row["gold"]
         correct += ok
         if row["gold"] == "contradicted" and pred == "supported":
             false_supported_on_contra += 1
-        flag = "ok " if ok else "XX "
-        print(f"  [{flag}] {row['id']:<3} gold={row['gold']:<12} pred={pred:<12} "
-              f"conf={conf:.2f}")
-
+        print(f"  [{'ok ' if ok else 'XX '}] {row['id']:<3} gold={row['gold']:<12} "
+              f"pred={pred:<12} conf={conf:.2f}")
     n = len(HAND_LABELED)
     acc = correct / n
     print(f"\nAccuracy: {correct}/{n} = {acc:.2f}")
-    print(f"False-'supported' on contradicted rows (safety-critical): "
-          f"{false_supported_on_contra}")
-    print("\nConfusion (gold -> pred):")
+    print(f"False-'supported' on contradicted rows (safety-critical): {false_supported_on_contra}")
+    print("Confusion (gold -> pred):")
     for gold in ("supported", "neutral", "contradicted"):
         for pred in ("supported", "neutral", "contradicted"):
             c = confusion.get((gold, pred), 0)
             if c:
                 print(f"  {gold:<12} -> {pred:<12}: {c}")
+    tag = f"{getattr(nli, 'precision', '?')}, {getattr(nli, 'providers', ['?'])[0]}"
+    print(f"latency/claim ({tag}): median={st_median(lat):.0f}ms")
+    return false_supported_on_contra == 0 and acc >= 0.85, acc, false_supported_on_contra
 
-    passed = false_supported_on_contra == 0 and acc >= 0.85
-    print("\n" + "=" * 60)
+
+def _log_pairs(limit=None):
+    """Real (premise=evidence span, hypothesis=claim, ref=LLM verdict) from production logs."""
+    import glob
+    from paths import LOG_DIR
+    pairs = []
+    for f in sorted(glob.glob(str(LOG_DIR / "rag-*.jsonl"))):
+        for line in open(f, encoding="utf-8"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            v = rec.get("verify")
+            for vd in (v.get("verdicts") if isinstance(v, dict) else None) or []:
+                ev, claim, ref = vd.get("evidence"), vd.get("text"), vd.get("verdict")
+                if ev and claim and ref in ("supported", "neutral", "contradicted"):
+                    pairs.append({"premise": ev, "claim": claim, "ref": ref,
+                                  "safety": bool(vd.get("safety"))})
+    return pairs[:limit] if limit else pairs
+
+
+def _log_agreement(nli):
+    """Agreement of local int8 NLI vs the old gpt-5.4-mini verdicts on real logged claims."""
+    pairs = _log_pairs()
+    print(f"\n--- Old-log agreement vs gpt-5.4-mini ({len(pairs)} logged verdicts) ---")
+    if not pairs:
+        print("  (no logged verdicts with evidence found)")
+        return None
+    agree, conf_mat, dangerous = 0, {}, 0
+    for p in pairs:
+        label, _ = nli(p["premise"], p["claim"])
+        pred = _LABEL_TO_VERDICT.get(label, "neutral")
+        agree += pred == p["ref"]
+        conf_mat[(p["ref"], pred)] = conf_mat.get((p["ref"], pred), 0) + 1
+        # the only dangerous direction: LLM said contradicted, local says supported
+        if p["ref"] == "contradicted" and pred == "supported":
+            dangerous += 1
+    print(f"  agreement: {agree}/{len(pairs)} = {agree/len(pairs):.2f}")
+    print(f"  DANGEROUS (LLM=contradicted -> local=supported): {dangerous}")
+    print("  llm_verdict -> local_pred:")
+    for ref in ("supported", "neutral", "contradicted"):
+        row = {pred: conf_mat.get((ref, pred), 0) for pred in
+               ("supported", "neutral", "contradicted")}
+        if sum(row.values()):
+            print(f"    {ref:<12} -> {row}")
+    return agree / len(pairs), dangerous
+
+
+def st_median(xs):
+    import statistics
+    return statistics.median(xs) if xs else 0.0
+
+
+def main():
+    nli, runtime = load_nli()
+    print(f"NLI runtime: {runtime}  model={nli.model.config._name_or_path if hasattr(nli, 'model') else '?'}\n")
+    passed, acc, false_sup = _gate(nli)
+    _log_agreement(nli)
+    print("\n" + "=" * 64)
     if passed:
-        print("PASS -> set VERIFIER_BACKEND = 'local_nli' (offline, free).")
+        print("PASS -> VERIFIER_BACKEND = 'local_nli' clears the safety bar (offline, free).")
     else:
-        print("FAIL -> use 'hybrid' (local NLI + escalate negation/safety/low-conf to "
-              "gpt-5.4-mini) or 'llm'.")
-    print("=" * 60)
+        print("FAIL the pure-local bar -> use 'hybrid' (local NLI for easy claims; escalate "
+              "negation/safety/low-confidence to gpt-5.4-mini). Local never produced a")
+        print(f"      false 'supported' on a contradiction: {false_sup == 0} (the fatal error).")
+    print("=" * 64)
 
 
 if __name__ == "__main__":

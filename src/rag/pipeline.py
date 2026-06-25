@@ -11,6 +11,7 @@ evaluation harness. Per-stage latencies are returned alongside the response.
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import chromadb
@@ -47,6 +48,16 @@ class RAGPipeline:
         self.verify = verify
         self.verifier = (ChatClient(VERIFIER_MODEL)
                          if verify and backend in ("llm", "hybrid") else None)
+        # Local int8 NLI (mDeBERTa-XNLI) for the local_nli/hybrid backends. Lazy-loaded on first
+        # use so the torch-free offline path / tests never import optimum-onnxruntime.
+        self._nli = None
+
+    def _get_nli(self):
+        """Lazy-load the local NLI model once, only when a backend needs it."""
+        if self._nli is None and self.verify and self.backend in ("local_nli", "hybrid"):
+            from rag.nli_local import LocalNLI
+            self._nli = LocalNLI()
+        return self._nli
 
     def retrieve_for_intent(self, query: str, intent: str,
                             n_results: int = TOP_K) -> list[dict]:
@@ -73,36 +84,49 @@ class RAGPipeline:
             calc: dict | None = None) -> dict:
         """Full pipeline run; returns {response, routing, timings_s}."""
         timings = {}
+        t0 = time.perf_counter()
 
         t = time.perf_counter()
         routing = route(query, self.chat)
         timings["router"] = round(time.perf_counter() - t, 2)
 
-        chunks = []
-        if routing["intent"] != "off_topic":
-            t = time.perf_counter()
-            try:
-                chunks = self.retrieve_for_intent(query, routing["intent"])
-            except Exception as err:
-                # Embedding/API outage -> no chunks -> generator falls back
-                # (never crashes the caller, never answers uncited).
-                print(f"  [retrieval failed] {err}", file=sys.stderr)
-            timings["retrieval"] = round(time.perf_counter() - t, 2)
+        # Retrieval (embedding API + vector search) and safety (OpenFDA API + local checks) both
+        # depend only on the routed output and are independent of each other — run them concurrently
+        # so the OpenFDA tail hides under retrieval instead of stacking after it. Both are I/O-bound,
+        # so threads (GIL released on network) give the win without process overhead.
+        def _retrieve() -> tuple[list, float]:
+            s = time.perf_counter()
+            ch: list = []
+            if routing["intent"] != "off_topic":
+                try:
+                    ch = self.retrieve_for_intent(query, routing["intent"])
+                except Exception as err:  # API outage -> no chunks -> generator falls back
+                    print(f"  [retrieval failed] {err}", file=sys.stderr)
+            return ch, round(time.perf_counter() - s, 2)
 
-        t = time.perf_counter()
-        alerts = check_allergies(routing["drugs"], patient_context or {})
-        alerts += check_contraindications(routing["drugs"], patient_context or {})
-        alerts += check_drug_interactions(routing["drugs"], patient_context or {})
-        timings["safety"] = round(time.perf_counter() - t, 2)
+        def _safety() -> tuple[list, float]:
+            s = time.perf_counter()
+            a = check_allergies(routing["drugs"], patient_context or {})
+            a += check_contraindications(routing["drugs"], patient_context or {})
+            a += check_drug_interactions(routing["drugs"], patient_context or {})
+            return a, round(time.perf_counter() - s, 2)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f_chunks = pool.submit(_retrieve)
+            f_alerts = pool.submit(_safety)
+            chunks, timings["retrieval"] = f_chunks.result()
+            alerts, timings["safety"] = f_alerts.result()
 
         t = time.perf_counter()
         verifier_chat = self.verifier if self.verify else None
         response = generate(query, routing["intent"], chunks,
                             patient_context or {}, calc or {}, alerts, self.chat,
                             verifier_chat=verifier_chat,
-                            backend=self.backend if self.verify else "llm")
+                            backend=self.backend if self.verify else "llm",
+                            nli=self._get_nli())
         timings["generation"] = round(time.perf_counter() - t, 2)
-        timings["total"] = round(sum(timings.values()), 2)
+        # Real end-to-end wall-clock (not a sum of stages — retrieval/safety now overlap).
+        timings["total"] = round(time.perf_counter() - t0, 2)
         # verify is a sub-stage of generation; reported separately, not double-summed.
         timings["verify"] = (response.get("verify") or {}).get("elapsed_s", 0.0)
 

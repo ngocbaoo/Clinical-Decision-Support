@@ -12,7 +12,9 @@ Reused by embedding_eval.py, embedder.py and retriever.py.
 import math
 import os
 import sys
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -43,7 +45,7 @@ def _normalize(vec: list[float]) -> list[float]:
 class EmbeddingClient:
     """Thin wrapper over the OpenRouter embeddings endpoint."""
 
-    def __init__(self, model_name: str = DEFAULT_MODEL):
+    def __init__(self, model_name: str = DEFAULT_MODEL, query_cache_size: int = 512):
         api_key = os.getenv("OPEN_ROUTER_KEY")
         if not api_key:
             raise RuntimeError(
@@ -52,6 +54,12 @@ class EmbeddingClient:
         self.model_name = model_name
         self.client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=api_key)
         self._dim: int | None = None
+        # Bounded LRU cache for single-text (query) embeddings — see embed_one(). Lock guards it
+        # because the pipeline now runs retrieval in a worker thread (concurrent requests share one
+        # embedder), and OrderedDict mutation is not atomic across move_to_end/popitem.
+        self._qcache: "OrderedDict[str, list[float]]" = OrderedDict()
+        self._qcache_size = query_cache_size
+        self._qlock = threading.Lock()
 
     @property
     def dim(self) -> int | None:
@@ -80,7 +88,22 @@ class EmbeddingClient:
         raise RuntimeError(f"Embedding failed after {max_retries} attempts: {last_err}")
 
     def embed_one(self, text: str) -> list[float]:
-        return self.embed([text])[0]
+        """Embed a single text (the query path) with a bounded LRU cache. The query vector is
+        deterministic per (model, text), so re-embedding the same query — eval re-runs, repeated
+        questions, the contraindication 'embed once query twice' path — skips the ~0.8s API call.
+        Indexing goes through embed() (batch) and is intentionally NOT cached."""
+        with self._qlock:
+            cached = self._qcache.get(text)
+            if cached is not None:
+                self._qcache.move_to_end(text)
+                return cached
+        vec = self.embed([text])[0]  # network call outside the lock
+        if self._qcache_size > 0:
+            with self._qlock:
+                self._qcache[text] = vec
+                if len(self._qcache) > self._qcache_size:
+                    self._qcache.popitem(last=False)  # evict least-recently-used
+        return vec
 
 
 class ChatClient:
@@ -133,3 +156,33 @@ class ChatClient:
                       f"-> sleeping {wait}s", file=sys.stderr)
                 time.sleep(wait)
         raise RuntimeError(f"Chat failed after {max_retries} attempts: {last_err}")
+
+    def chat_stream(self, messages: list[dict], temperature: float = 0.1,
+                    max_tokens: int = 1200):
+        """Yield assistant text deltas as they arrive (stream=True), setting last_usage at the end.
+
+        This is the TTFT primitive — first token typically lands in ~1s vs ~4.5s for the full
+        answer. NOTE for the RAG path: the generator's answer is structured JSON and is gated by
+        the post-generation verifier (fail-closed), so deltas must NOT be shown verbatim to the
+        clinician — stream them into a clearly-marked "đang soạn / chưa xác minh" draft state and
+        swap in the verified answer once verify_answer() clears it. See docs/RAG_PERF_REPORT.md.
+        No retry: a streamed connection can't be transparently resumed; callers fall back to chat().
+        """
+        extra = ({"extra_body": {"reasoning": {"enabled": False}}}
+                 if self.reasoning is False else {})
+        self.last_usage = None
+        stream = self.client.chat.completions.create(
+            model=self.model_name, messages=messages, temperature=temperature,
+            max_tokens=max_tokens, stream=True,
+            stream_options={"include_usage": True}, **extra)
+        for chunk in stream:
+            choices = getattr(chunk, "choices", None) or []
+            if choices:
+                delta = getattr(choices[0], "delta", None)
+                piece = getattr(delta, "content", None) if delta else None
+                if piece:
+                    yield piece
+            u = getattr(chunk, "usage", None)  # final chunk carries usage (include_usage)
+            if u:
+                self.last_usage = {"prompt_tokens": getattr(u, "prompt_tokens", None),
+                                   "completion_tokens": getattr(u, "completion_tokens", None)}

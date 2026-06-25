@@ -27,12 +27,14 @@ pytest>=8.0.0
 # reference WER. Run: python src/asr/eval/gen_audio.py  ->  python src/asr/eval/convert_ct2.py  ->
 # python src/asr/eval/asr_bakeoff.py  (see docs/ASR_CT2_MIGRATION.md)
 
-# --- OPTIONAL: local NLI verifier backend (Phase-1 spike + local_nli/hybrid) ---
-# NOT installed by default — the project is deliberately torch-free (embeddings go via
-# OpenRouter). Install ONLY if the Phase-1 gate (src/rag/eval/nli_validation.py) selects a
-# local backend. ONNX is preferred over full torch.
-#
-#   ONNX (preferred, no torch):
-#     pip install "optimum[onnxruntime]>=1.20.0" transformers>=4.40.0 scipy>=1.11.0 numpy>=1.24.0
-#   or CPU torch fallback:
-#     pip install transformers>=4.40.0 torch>=2.2.0
+# --- OPTIONAL: local NLI verifier backend (hybrid/local_nli) ---
+# The default verifier is "hybrid": local mDeBERTa-XNLI (ONNX, fp16 on GPU) does the cheap first
+# pass, escalating contradiction/safety/low-confidence claims to the LLM. Inference uses
+# onnxruntime only (onnxruntime-gpu for the fp16/CUDA path; the CPU fp32 fallback works too).
+#   pip install "optimum[onnxruntime-gpu]>=1.20.0" onnxruntime-gpu==1.20.1 accelerate \
+#               transformers>=4.40.0 sentencepiece scipy numpy
+# Build the ONNX models once (fp32+fp16+int8 -> data/nli_onnx/, gitignored), then validate:
+#   python src/rag/nli_local.py                  # fp16 needs a CUDA GPU to export
+#   python src/rag/eval/nli_validation.py        # gold safety gate + old-log agreement
+# See docs/RAG_VERIFIER_LOCAL_NLI.md. int8 was REJECTED (it wrecked VN-negation accuracy:
+# 0.85 -> 0.65); fp16-on-GPU recovers it. Set VERIFIER_BACKEND="llm" to disable the local model.

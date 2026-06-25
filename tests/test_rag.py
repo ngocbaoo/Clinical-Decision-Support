@@ -399,7 +399,7 @@ def _t1_chunks():
 def test_generate_t1_verified_answer():
     gen = _mock_chat(_T1_REPLY)
     ver = _mock_chat('{"claims": [{"i": 0, "verdict": "supported", "is_safety": false}]}')
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert not resp["fallback"]
     assert "[1]" in resp["answer"] and resp["citations"] == [1]
     assert resp["verify"]["status"] == "ok"
@@ -412,7 +412,7 @@ def test_generate_t1_fast_path_supported_without_verifier_call():
                      '"evidence": "bù dịch tinh thể 30ml/kg", "citation": 1}], '
                      '"insufficient": false}')
     ver = MagicMock()
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert not resp["fallback"] and resp["citations"] == [1]
     ver.chat.assert_not_called()
 
@@ -420,7 +420,31 @@ def test_generate_t1_fast_path_supported_without_verifier_call():
 def test_generate_t1_contradiction_falls_back():
     gen = _mock_chat(_T1_REPLY)
     ver = _mock_chat('{"claims": [{"i": 0, "verdict": "contradicted", "is_safety": false}]}')
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
+    assert resp["fallback"] and resp["fallback_reason"] == "verifier_contradicted"
+
+
+def test_generate_local_nli_backend_uses_nli_callable():
+    # the local_nli backend must feed (premise=cited chunk, hypothesis=claim) to the nli
+    # callable and map its label -> verdict. Stub nli keeps this torch-free / offline.
+    gen = _mock_chat(_T1_REPLY)
+    seen = []
+
+    def fake_nli(premise, hypothesis):
+        seen.append((premise, hypothesis))
+        return "entailment", 0.95  # -> "supported"
+
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
+                    backend="local_nli", nli=fake_nli)
+    assert seen, "local_nli backend never called the nli model"
+    assert seen[0][0] == _t1_chunks()[0]["text"]  # premise is the cited chunk
+    assert not resp["fallback"] and resp["citations"] == [1]
+
+
+def test_generate_local_nli_contradiction_falls_back():
+    gen = _mock_chat(_T1_REPLY)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
+                    backend="local_nli", nli=lambda p, h: ("contradiction", 0.9))
     assert resp["fallback"] and resp["fallback_reason"] == "verifier_contradicted"
 
 
@@ -428,7 +452,7 @@ def test_generate_t1_fail_closed_for_contraindication():
     gen = _mock_chat(_T1_REPLY)
     ver = MagicMock()
     ver.chat.side_effect = RuntimeError("verifier down")
-    resp = generate("q", "contraindication", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    resp = generate("q", "contraindication", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert resp["fallback"] and resp["fallback_reason"] == "verifier_unavailable_safety"
 
 
@@ -436,10 +460,44 @@ def test_generate_t1_fail_open_with_banner():
     gen = _mock_chat(_T1_REPLY)
     ver = MagicMock()
     ver.chat.side_effect = RuntimeError("verifier down")
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert not resp["fallback"]
     assert "CHƯA được xác minh" in resp["answer"]
     assert resp["verify"]["status"] == "unverified"
+
+
+def test_pipeline_runs_retrieval_and_safety_in_parallel(monkeypatch):
+    # retrieval and safety each "take" 0.4s; run concurrently the stage wall-clock must be ~0.4s,
+    # well under the 0.8s serial sum. Stubs everything LLM/network so this stays offline.
+    import time as _t
+
+    import rag.pipeline as P
+    from rag.pipeline import RAGPipeline
+
+    pipe = RAGPipeline.__new__(RAGPipeline)  # bypass __init__ (no chroma / no network)
+    pipe.chat = None
+    pipe.verify = False
+    pipe.backend = "llm"
+    pipe.gen_model = "x"
+    pipe._nli = None
+
+    monkeypatch.setattr(P, "route", lambda q, chat: {
+        "intent": "general", "drugs": ["aspirin"], "procedures": [], "via": "stub"})
+    monkeypatch.setattr(pipe, "retrieve_for_intent",
+                        lambda q, i: (_t.sleep(0.4) or [{"text": "c", "source": "s",
+                                      "title": "t", "score": 0.9, "chunk_type": "x"}]))
+    monkeypatch.setattr(P, "check_allergies", lambda d, c: (_t.sleep(0.4) or []))
+    monkeypatch.setattr(P, "check_contraindications", lambda d, c: [])
+    monkeypatch.setattr(P, "check_drug_interactions", lambda d, c: [])
+    monkeypatch.setattr(P, "generate", lambda *a, **k: {
+        "answer": "x", "citations": [], "cited_sources": [], "alerts": [], "fallback": False,
+        "fallback_reason": None, "confidence": None, "verify": None})
+    monkeypatch.setattr(pipe, "_get_nli", lambda: None)
+    monkeypatch.setattr(pipe, "_log", lambda *a, **k: None)
+
+    res = pipe.ask("q", {}, {})
+    assert res["timings_s"]["total"] < 0.7  # parallel (~0.4), not serial (~0.8)
+    assert res["timings_s"]["retrieval"] >= 0.4 and res["timings_s"]["safety"] >= 0.4
 
 
 # ---- logging ----------------------------------------------------------------

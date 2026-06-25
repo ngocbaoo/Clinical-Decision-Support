@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import threading
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -32,9 +33,16 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+from paths import DATA_DIR  # noqa: E402
 
 OPENFDA_LABEL_URL = "https://api.fda.gov/drug/label.json"
 _TIMEOUT_S = 6.0
+
+# Disk-persisted cache so the OpenFDA lookups survive restarts — the safety stage's biggest tail
+# was a cold api.fda.gov round-trip (p95 ~6.8s) on first-seen drugs. Pre-warm with prewarm() /
+# `python src/rag/openfda.py`. Gitignored (derived data).
+_CACHE_FILE = DATA_DIR / "openfda_cache.json"
+_lock = threading.Lock()  # guards the on-disk write (safety runs in its own pipeline thread now)
 
 # Label sections that carry interaction prose. The structured prescription
 # field is `drug_interactions`; OTC monographs often lack it, so we also accept
@@ -46,10 +54,35 @@ _INTERACTION_FIELDS = ("drug_interactions",
 # Structured contraindications section of the label.
 _CONTRAINDICATION_FIELDS = ("contraindications",)
 
-# Process-lifetime caches: normalized drug name -> section paragraphs.
-# Avoids re-fetching the same label within an eval run / CLI session.
+# Caches: normalized drug name -> section paragraphs. Loaded from disk at import and re-saved on
+# every new fetch, so a warmed cache survives process restarts (not just one session).
 _interaction_cache: dict[str, list[str]] = {}
 _contraindication_cache: dict[str, list[str]] = {}
+
+
+def _load_cache() -> None:
+    """Populate the in-memory caches from the persisted file (best-effort)."""
+    try:
+        if _CACHE_FILE.is_file():
+            data = json.loads(_CACHE_FILE.read_text(encoding="utf-8"))
+            _interaction_cache.update(data.get("interaction", {}))
+            _contraindication_cache.update(data.get("contraindication", {}))
+    except Exception:  # noqa: BLE001 — a corrupt cache must never break startup
+        pass
+
+
+def _persist() -> None:
+    """Atomically write both caches to disk (best-effort; never breaks a request)."""
+    try:
+        with _lock:
+            _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _CACHE_FILE.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps({"interaction": _interaction_cache,
+                                       "contraindication": _contraindication_cache},
+                                      ensure_ascii=False), encoding="utf-8")
+            tmp.replace(_CACHE_FILE)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _norm(s: str) -> str:
@@ -103,6 +136,7 @@ def _get_label_sections(drug: str, fields: tuple[str, ...],
             break
 
     cache[key] = paras
+    _persist()  # keep the warmed entry across restarts
     return paras
 
 
@@ -115,6 +149,23 @@ def get_contraindication_text(drug: str) -> list[str]:
     """`contraindications` paragraphs for `drug` ([] if none/unknown)."""
     return _get_label_sections(drug, _CONTRAINDICATION_FIELDS,
                                _contraindication_cache)
+
+
+def prewarm(drugs) -> int:
+    """Fetch + cache labels for `drugs` (e.g. the ICU lexicon) so first live requests are warm.
+    Returns the number of newly-fetched drugs. Safe to re-run (skips already-cached)."""
+    fetched = 0
+    for d in drugs:
+        key = _norm(d)
+        if not key or (key in _interaction_cache and key in _contraindication_cache):
+            continue
+        get_interaction_text(d)
+        get_contraindication_text(d)
+        fetched += 1
+    return fetched
+
+
+_load_cache()  # warm the in-memory caches from disk at import
 
 
 def find_mention(text: str, term: str, whole_word: bool = True) -> str | None:
@@ -136,3 +187,10 @@ def find_mention(text: str, term: str, whole_word: bool = True) -> str | None:
             snippet = sentence.strip()
             return snippet[:240] + ("…" if len(snippet) > 240 else "")
     return None
+
+
+if __name__ == "__main__":  # one-off: warm the on-disk cache for the ICU drug lexicon
+    from asr.drug_lexicon import DRUG_LEXICON  # plain string list, no torch
+    n = prewarm(DRUG_LEXICON)
+    print(f"[openfda] prewarmed {n} new drug(s); cache -> {_CACHE_FILE} "
+          f"({len(_interaction_cache)} interaction / {len(_contraindication_cache)} contraindication)")

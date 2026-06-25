@@ -12,6 +12,8 @@ docs/
 logs/
 data/asr_test/
 data/asr_ct2/
+data/nli_onnx/
+data/openfda_cache.json
 data/asr_probe/*
 !data/asr_probe/README.md
 .codegraph/
