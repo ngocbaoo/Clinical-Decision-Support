@@ -24,7 +24,8 @@ from paths import CHROMA_PATH  # noqa: E402
 from embedding.or_client import ChatClient, EmbeddingClient, DEFAULT_MODEL  # noqa: E402
 from embedding.retriever import COLLECTION_NAME, retrieve  # noqa: E402
 from rag.config import (GEN_MODEL, GEN_REASONING_ENABLED, TOP_K,  # noqa: E402
-                        VERIFIER_BACKEND, VERIFIER_MODEL, VERIFY_ENABLED)
+                        VERIFIER_BACKEND, VERIFIER_MODEL, VERIFY_ENABLED,
+                        VERIFY_EVIDENCE_NLI)
 from rag.generator import generate  # noqa: E402
 from rag.logging_utils import log_request  # noqa: E402
 from rag.query_router import route  # noqa: E402
@@ -53,8 +54,11 @@ class RAGPipeline:
         self._nli = None
 
     def _get_nli(self):
-        """Lazy-load the local NLI model once, only when a backend needs it."""
-        if self._nli is None and self.verify and self.backend in ("local_nli", "hybrid"):
+        """Lazy-load the local NLI model once, only when a backend needs it. Loaded for the
+        local_nli/hybrid chunk-level backends AND for the Lever-2 evidence-span entailment check
+        (VERIFY_EVIDENCE_NLI), which runs regardless of the chunk-level backend."""
+        needs_nli = self.backend in ("local_nli", "hybrid") or VERIFY_EVIDENCE_NLI
+        if self._nli is None and self.verify and needs_nli:
             from rag.nli_local import LocalNLI
             self._nli = LocalNLI()
         return self._nli

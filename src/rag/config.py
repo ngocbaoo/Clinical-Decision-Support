@@ -46,6 +46,31 @@ VERIFY_ENABLED = True
 # Below this NLI max-probability a claim is "low confidence" -> hybrid escalates.
 VERIFY_NLI_CONF = 0.60
 
+# Lever 1 (src/rag/verifier.py _evidence_grounded): a claim citing chunk [n] is "grounded" only if
+# >= this fraction of its quoted-evidence tokens actually appear in chunk [n] (fuzzy, diacritic/
+# unit-insensitive). Ungrounded claims are dropped by code instead of trusted. 0.8 tolerates VN
+# formatting noise while rejecting fabricated quotes; lower it if answer-rate collapses, raise it to
+# be stricter. Tuned 2026-06-25 against answer_eval (faithfulness up vs answer-rate).
+EVIDENCE_MIN_COVERAGE = 0.8
+
+# Lever 2 (src/rag/verifier.py): for a claim whose evidence IS grounded (Lever 1), additionally
+# require the claim to be ENTAILED by its own evidence span via the local mDeBERTa-XNLI model
+# (premise = the ~30-token evidence quote, hypothesis = the claim). A tight premise is exactly
+# where NLI is crisp, so this catches "real quote, insufficient claim" over-claims (e.g. a claim
+# that quotes a liver-failure sentence then appends an unsupported H2-blocker recommendation) that
+# Lever 1 (evidence exists) and the lenient LLM verifier both miss. Not-entailed -> neutral/
+# contradicted -> stripped or fallback. Offline, $0, no extra inference cost beyond the NLI it
+# already loads. Set False to fall back to Lever-1-only (grounded -> supported without entailment).
+VERIFY_EVIDENCE_NLI = True
+
+# Lever 2 confidence gate. As a HARD gate (drop on ANY non-entailment) the local mDeBERTa NLI
+# over-rejected — answer-rate collapsed to 45% and valid paraphrases (e.g. A-11 contraindication)
+# were killed, because mDeBERTa marks faithful VN paraphrases "neutral". So a claim is dropped only
+# when NLI is CONFIDENT it is not entailed (max-prob >= this on a neutral/contradiction label);
+# entailed OR low-confidence -> kept (benefit of the doubt). Higher = fewer false rejects but fewer
+# catches; lower = more catches but more false rejects. Tuned 2026-06-25 on answer_eval.
+NLI_REJECT_CONF = 0.7
+
 # Local NLI verifier model (src/rag/nli_local.py). Exported to ONNX (fp32/fp16/int8) under
 # NLI_ONNX_DIR (gitignored); built once via `python src/rag/nli_local.py`.
 #   NLI_PRECISION "fp16" = run on CUDA, near-lossless (DEFAULT). int8 dynamic quantization
@@ -64,10 +89,22 @@ NLI_PRECISION = "fp16"
 # insufficient/citation guard instead. Re-run the calibration after re-indexing.
 CONF_THRESHOLD = 0.40
 
-# How many chunks to retrieve / pass to the LLM.
-TOP_K = 5
+# How many chunks to retrieve / pass to the LLM. VALIDATED 2026-06-25 (docs/RAG_EVAL_REPORT.md §4.1):
+# lowered 5->4 to cut prefill (generation is ~96% of wall-clock, ~92% prefill). TOP_K=3 was tried
+# first and REVERTED — it dropped scenario A-05's supporting RANK-4 chunk (a vasopressor titration
+# dose) -> faithfulness 5/7->4/7. TOP_K=4 keeps the rank-4 chunk (A-05 recovered to pass/cp=1.0) and
+# drops only rank-5 (~17% less prefill). Measured at K=4: faithfulness 6/8, citation-precision 0.94,
+# Recall@4=1.0, safety-priority@4=1.0, answer-rate 8/11 — all >= TOP_K=5 baseline. Re-run
+# topk_sweep.py + answer_eval after any re-index before changing.
+TOP_K = 4
 
-# Per-chunk character cap inside the prompt (keeps total prompt bounded).
+# Per-chunk character cap inside the prompt (keeps total prompt bounded). Kept at 2500 after a
+# 2026-06-25 experiment (reviewer prio #2, docs/RAG_EVAL_REPORT.md §4.3): lowering it to cut prefill
+# was REJECTED. cap=1800 truncated multi-step procedure chunks mid-list -> verifier integrity-break
+# -> A-04 & A-08 forced to fallback (behavior regression). cap=2200 avoided that but truncated
+# A-05's vasopressor-titration grounding span -> faithfulness 6/8->5/8 for a marginal prefill saving
+# (median chunk ~2600 chars). Char-cap MUTILATES the chunks you keep, unlike TOP_K which drops a
+# whole low-value chunk cleanly -> no safe headroom here. The clean prefill win was TOP_K 5->4.
 CHUNK_CHAR_CAP = 2500
 
 DISCLAIMER = "Cần bác sĩ xác nhận trước khi thực hiện."

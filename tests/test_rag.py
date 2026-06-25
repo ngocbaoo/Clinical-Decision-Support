@@ -15,7 +15,7 @@ from rag.openfda import find_mention  # noqa: E402
 from rag.context_builder import build_messages, summarize_patient  # noqa: E402
 from rag.config import DISCLAIMER  # noqa: E402
 from rag.verifier import (decide, verify_answer, _is_effective_safety,  # noqa: E402
-                          _evidence_matches)
+                          _evidence_matches, _evidence_grounded)
 from rag.logging_utils import log_request  # noqa: E402
 
 
@@ -364,31 +364,44 @@ def test_verify_fast_path_skips_backend():
     chat.chat.assert_not_called()
 
 
-def test_verify_miss_falls_through_to_backend():
-    chat = _mock_chat('{"claims": [{"i": 0, "verdict": "supported", "is_safety": false}]}')
-    claims = [{"text": "Khuyến nghị X [1]", "evidence": "không có trong chunk", "citation": 1}]
-    chunks = [{"text": "nội dung khác", "title": "T", "source": "S",
+def test_evidence_grounded_fuzzy():
+    chunk = "Khuyến cáo bù dịch tinh thể 30ml/kg trong giờ đầu, MAP mục tiêu >= 65 mmHg."
+    assert _evidence_grounded("bù dịch tinh thể 30ml/kg", chunk)
+    assert _evidence_grounded("MAP mục tiêu ≥ 65 mmHg", chunk)        # unicode >= , diacritics
+    assert not _evidence_grounded("dự phòng xuất huyết bằng kháng H2", chunk)  # fabricated quote
+
+
+def test_verify_ungrounded_claim_dropped_by_code():
+    # Lever 1: evidence NOT in the cited chunk -> "neutral" by code, NEVER sent to the backend.
+    chat = MagicMock()  # must NOT be called
+    claims = [{"text": "Khuyến nghị X [1]", "evidence": "không có trong chunk này", "citation": 1}]
+    chunks = [{"text": "nội dung hoàn toàn khác", "title": "T", "source": "S",
                "chunk_type": "procedure", "score": 0.8}]
     res = verify_answer(claims, chunks, "", "procedure", backend="llm", verifier_chat=chat)
-    assert res["action"] == "keep"
-    chat.chat.assert_called_once()
+    assert res["action"] == "fallback"  # only claim dropped -> nothing kept
+    chat.chat.assert_not_called()
 
 
 def test_verify_backend_error_returns_status_error():
     chat = MagicMock()
     chat.chat.side_effect = RuntimeError("api down")
-    claims = [{"text": "X [1]", "evidence": "miss", "citation": 1}]
+    # a no-citation (patient-data) claim is the path that still reaches the LLM backend
+    claims = [{"text": "MAP 60 mmHg", "evidence": "", "citation": None}]
     chunks = [{"text": "khác", "title": "T", "source": "S", "chunk_type": "procedure",
                "score": 0.8}]
-    res = verify_answer(claims, chunks, "", "procedure", backend="llm", verifier_chat=chat)
+    res = verify_answer(claims, chunks, "MAP = 60", "procedure", backend="llm", verifier_chat=chat)
     assert res["status"] == "error"
 
 
 # ---- generator T1 + verifier integration ----------------------------------
-# evidence deliberately NOT in the chunk -> bypasses the $0 fast-path, exercises backend
+# evidence IS in the chunk (Lever 1 passes); the verdict then comes from the Lever-2 NLI gate.
 _T1_REPLY = ('{"sentences": [{"text": "Bù dịch tinh thể 30ml/kg", '
-             '"evidence": "đoạn không có trong tài liệu", "citation": 1}], '
+             '"evidence": "bù dịch tinh thể 30ml/kg", "citation": 1}], '
              '"confidence": 0.8, "insufficient": false}')
+# a no-citation (patient-data) claim -> the only path that still reaches the LLM/NLI backend.
+_T1_REPLY_NOCITE = ('{"sentences": [{"text": "MAP hiện tại là 60 mmHg", '
+                    '"evidence": "", "citation": null}], '
+                    '"confidence": 0.8, "insufficient": false}')
 
 
 def _t1_chunks():
@@ -397,20 +410,18 @@ def _t1_chunks():
 
 
 def test_generate_t1_verified_answer():
+    # grounded evidence + no NLI passed -> Lever-1 keeps it (supported); backend not needed
     gen = _mock_chat(_T1_REPLY)
-    ver = _mock_chat('{"claims": [{"i": 0, "verdict": "supported", "is_safety": false}]}')
+    ver = MagicMock()
     resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert not resp["fallback"]
     assert "[1]" in resp["answer"] and resp["citations"] == [1]
     assert resp["verify"]["status"] == "ok"
-    ver.chat.assert_called_once()
 
 
 def test_generate_t1_fast_path_supported_without_verifier_call():
-    # evidence IS in the chunk -> $0 fast-path, verifier never called
-    gen = _mock_chat('{"sentences": [{"text": "Bù dịch tinh thể 30ml/kg", '
-                     '"evidence": "bù dịch tinh thể 30ml/kg", "citation": 1}], '
-                     '"insufficient": false}')
+    # grounded evidence -> kept by code, the LLM verifier is never called
+    gen = _mock_chat(_T1_REPLY)
     ver = MagicMock()
     resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
     assert not resp["fallback"] and resp["citations"] == [1]
@@ -418,27 +429,45 @@ def test_generate_t1_fast_path_supported_without_verifier_call():
 
 
 def test_generate_t1_contradiction_falls_back():
+    # Lever 2: the NLI judges the grounded claim against its evidence span -> contradiction
     gen = _mock_chat(_T1_REPLY)
-    ver = _mock_chat('{"claims": [{"i": 0, "verdict": "contradicted", "is_safety": false}]}')
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
+    ver = MagicMock()
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver,
+                    backend="llm", nli=lambda p, h: ("contradiction", 0.95))
     assert resp["fallback"] and resp["fallback_reason"] == "verifier_contradicted"
 
 
-def test_generate_local_nli_backend_uses_nli_callable():
-    # the local_nli backend must feed (premise=cited chunk, hypothesis=claim) to the nli
-    # callable and map its label -> verdict. Stub nli keeps this torch-free / offline.
+def test_generate_lever2_evidence_span_is_premise():
+    # Lever 2 feeds (premise = the claim's EVIDENCE span, hypothesis = claim) to the nli callable —
+    # NOT the whole chunk (that tight premise is what makes the entailment check crisp).
     gen = _mock_chat(_T1_REPLY)
     seen = []
 
     def fake_nli(premise, hypothesis):
         seen.append((premise, hypothesis))
-        return "entailment", 0.95  # -> "supported"
+        return "entailment", 0.95  # -> supported
 
     resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
                     backend="local_nli", nli=fake_nli)
-    assert seen, "local_nli backend never called the nli model"
-    assert seen[0][0] == _t1_chunks()[0]["text"]  # premise is the cited chunk
+    assert seen, "nli was never called"
+    assert seen[0][0] == "bù dịch tinh thể 30ml/kg"  # premise is the evidence span, not the chunk
     assert not resp["fallback"] and resp["citations"] == [1]
+
+
+def test_generate_lever2_low_confidence_neutral_kept():
+    # confidence gate: a LOW-confidence non-entailment keeps the claim (mDeBERTa over-rejects VN)
+    gen = _mock_chat(_T1_REPLY)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
+                    backend="local_nli", nli=lambda p, h: ("neutral", 0.5))  # below NLI_REJECT_CONF
+    assert not resp["fallback"] and resp["citations"] == [1]
+
+
+def test_generate_lever2_high_confidence_neutral_dropped():
+    # confidence gate: a HIGH-confidence neutral (over-claim) is dropped -> fallback
+    gen = _mock_chat(_T1_REPLY)
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
+                    backend="local_nli", nli=lambda p, h: ("neutral", 0.95))  # >= NLI_REJECT_CONF
+    assert resp["fallback"]
 
 
 def test_generate_local_nli_contradiction_falls_back():
@@ -449,18 +478,22 @@ def test_generate_local_nli_contradiction_falls_back():
 
 
 def test_generate_t1_fail_closed_for_contraindication():
-    gen = _mock_chat(_T1_REPLY)
+    # no-citation claim reaches the backend; backend down + safety intent -> fail CLOSED
+    gen = _mock_chat(_T1_REPLY_NOCITE)
     ver = MagicMock()
     ver.chat.side_effect = RuntimeError("verifier down")
-    resp = generate("q", "contraindication", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
+    resp = generate("q", "contraindication", _t1_chunks(), {}, {}, [], gen,
+                    verifier_chat=ver, backend="llm")
     assert resp["fallback"] and resp["fallback_reason"] == "verifier_unavailable_safety"
 
 
 def test_generate_t1_fail_open_with_banner():
-    gen = _mock_chat(_T1_REPLY)
+    # no-citation claim reaches the backend; backend down + non-safety intent -> fail OPEN (banner)
+    gen = _mock_chat(_T1_REPLY_NOCITE)
     ver = MagicMock()
     ver.chat.side_effect = RuntimeError("verifier down")
-    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen, verifier_chat=ver, backend="llm")
+    resp = generate("q", "procedure", _t1_chunks(), {}, {}, [], gen,
+                    verifier_chat=ver, backend="llm")
     assert not resp["fallback"]
     assert "CHƯA được xác minh" in resp["answer"]
     assert resp["verify"]["status"] == "unverified"

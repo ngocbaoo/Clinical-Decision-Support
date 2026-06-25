@@ -65,6 +65,33 @@ def _evidence_matches(evidence: str, chunk_text: str) -> bool:
     return len(e) >= 12 and e in _fold(chunk_text)
 
 
+def _norm_tokens(s: str) -> list[str]:
+    """Alphanumeric tokens after compatibility + diacritic normalization, so VN clinical text
+    matches despite formatting noise: NFKC folds subscripts/units (SpO₂ -> SpO2, full-width),
+    then diacritics are stripped and dash/space variants vanish under tokenization
+    ("5–10 phút" / "5-10 phút" -> ["5","10","phut"]; "hô hấp" / "ho hap" -> ["ho","hap"])."""
+    s = unicodedata.normalize("NFKC", s or "").lower().replace("đ", "d")
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return re.findall(r"[a-z0-9]+", s)
+
+
+def _evidence_grounded(evidence: str, chunk_text: str, min_coverage: float = None) -> bool:
+    """Lever 1 — is the model's quoted evidence REALLY in the cited chunk? Fuzzy (token-coverage)
+    instead of exact substring, because exact match dies on VN diacritic/dash/unit noise. Returns
+    True iff >= min_coverage of the evidence's content tokens appear in the chunk. A fabricated
+    quote (tokens absent from the chunk) scores low and fails -> the claim is dropped, not trusted.
+    """
+    from rag.config import EVIDENCE_MIN_COVERAGE
+    cov = EVIDENCE_MIN_COVERAGE if min_coverage is None else min_coverage
+    ev = _norm_tokens(evidence)
+    if len(ev) < 3:           # too short to be a meaningful quote -> not grounding
+        return False
+    chunk = set(_norm_tokens(chunk_text))
+    hits = sum(1 for t in ev if t in chunk)
+    return hits / len(ev) >= cov
+
+
 def _is_effective_safety(text: str, model_is_safety: bool, intent: str) -> bool:
     """A claim is safety if the verifier flagged it, OR a keyword backstop fires, OR
     the whole question is a contraindication query (every claim treated as safety)."""
@@ -171,14 +198,35 @@ def verify_answer(claims: list[dict], chunks: list[dict], patient_summary: str,
                 "kept_claims": [], "unsupported_ratio": 0.0, "contradiction_count": 0,
                 "is_ordered_procedure": False, "fallback_reason": None, "verdicts": []}
 
-    # $0 positive fast-path: evidence quote literally present in the cited chunk.
+    # Lever 1 — evidence binding, CODE-ENFORCED ("grounded by enforcement", not by convention):
+    # a claim that CITES a chunk must quote evidence that actually appears in that chunk. Grounded
+    # -> supported ($0 fast-path). NOT grounded -> "neutral" by code (the model fabricated/misquoted
+    # the evidence) -> dropped by decide(), NEVER handed to the lenient LLM backend that used to
+    # rubber-stamp it. Claims citing NO chunk (patient-data / pre-computed scores) still go to the
+    # backend, which checks them against the patient summary.
+    from rag.config import VERIFY_EVIDENCE_NLI, NLI_REJECT_CONF
+    _NLI_MAP = {"entailment": "supported", "contradiction": "contradicted", "neutral": "neutral"}
     fast = [None] * len(claims)
     pending_idx = []
     for i, c in enumerate(claims):
         cit = c.get("citation")
         chunk = chunks[cit - 1] if isinstance(cit, int) and 1 <= cit <= len(chunks) else None
-        if chunk and _evidence_matches(c.get("evidence", ""), chunk.get("text", "")):
-            fast[i] = {"verdict": "supported", "is_safety": False}
+        if chunk is not None:
+            evidence = c.get("evidence", "")
+            if not _evidence_grounded(evidence, chunk.get("text", "")):
+                fast[i] = {"verdict": "neutral", "is_safety": False}  # Lever 1: fabricated/misquoted
+            elif VERIFY_EVIDENCE_NLI and nli is not None:
+                # Lever 2: grounded is necessary but NOT sufficient — the claim must be entailed by
+                # its OWN evidence span (catches "real quote, over-reaching claim"). Tight premise.
+                # Confidence-gated: drop only when NLI is CONFIDENT it is not entailed; an entailed
+                # OR low-confidence verdict keeps the claim (mDeBERTa over-rejects VN paraphrases).
+                label, conf = nli(evidence, c.get("text", ""))
+                if label != "entailment" and conf >= NLI_REJECT_CONF:
+                    fast[i] = {"verdict": _NLI_MAP.get(label, "neutral"), "is_safety": False}
+                else:
+                    fast[i] = {"verdict": "supported", "is_safety": False}
+            else:
+                fast[i] = {"verdict": "supported", "is_safety": False}  # Lever-1-only fallback
         else:
             pending_idx.append(i)
 
