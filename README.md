@@ -138,15 +138,22 @@ python src/rag/ask.py --file ... --query "..." --json             # machine-read
 Pipeline: LLM intent router (`query_router.py`) → safety-priority retrieval →
 safety gate (`safety.py` + OpenFDA contraindication/interaction checks, alert always
 renders first) → grounded generation (`generator.py`) → **claim-level faithfulness
-verifier** (`verifier.py`). The hallucination guard is **code-enforced**:
+verifier** (`verifier.py`). Grounding is **enforced in code**, not trusted by convention
+(`docs/RAG_GROUNDING_ENFORCEMENT.md`):
 
-- T1 generation emits per-sentence `{text, evidence, citation}`; a `$0` evidence-quote
-  fast-path trusts claims whose quote is literally in the cited chunk.
-- The verifier labels each remaining claim `supported | neutral | contradicted` (backend
-  `llm` = `openai/gpt-5.4-mini`, or offline `local_nli`/`hybrid`) and a code decision tree
-  decides keep / strip / fallback: any **contradiction**, any unsupported **safety** claim,
-  or a broken **ordered procedure** → fall back the whole answer; ordinary surplus is
-  stripped. Verifier outage → **fail-closed** for safety, **fail-open with a visible banner**
+- T1 generation emits per-sentence `{text, evidence, citation}`.
+- **Lever 1 — evidence must exist:** a claim citing chunk `[n]` is kept only if ≥80%
+  (`EVIDENCE_MIN_COVERAGE`) of its quoted-evidence tokens actually appear in that chunk (fuzzy,
+  diacritic/unit-insensitive). A fabricated quote is dropped by code, never rubber-stamped.
+- **Lever 2 — claim ⊆ evidence:** a grounded claim is then checked by a local mDeBERTa-XNLI model
+  with `premise = its own evidence span, hypothesis = the claim` (`VERIFY_EVIDENCE_NLI`). The claim
+  is dropped only when the NLI is *confident* it is not entailed (`NLI_REJECT_CONF = 0.7`), so
+  faithful VN paraphrases survive while real-but-insufficient over-claims are caught.
+- Claims citing no chunk (patient-data / pre-computed scores) go to the chunk-level backend
+  (`llm` = `openai/gpt-5.4-mini`, or offline `local_nli`/`hybrid`).
+- A code decision tree decides keep / strip / fallback: any **contradiction**, any unsupported
+  **safety** claim, or a broken **ordered procedure** → fall back the whole answer; ordinary surplus
+  is stripped. Verifier outage → **fail-closed** for safety, **fail-open with a visible banner**
   otherwise.
 - A non-fallback answer without a valid `[n]` citation is still replaced by the "Không đủ
   thông tin" fallback (F-RAG-09); scoring-intent answers are grounded in `calculate_all()`.
@@ -202,7 +209,7 @@ Vietnamese **drug-name** audio:
 ```powershell
 # one-time deps (see requirements.txt OPTIONAL block; CUDA torch for the GPU)
 pip install torch --index-url https://download.pytorch.org/whl/cu124
-pip install transformers jiwer soundfile librosa datasets gTTS
+pip install faster-whisper ctranslate2 transformers jiwer soundfile librosa datasets gTTS
 
 python src/asr/eval/gen_audio.py                            # render VN drug sentences (gTTS, 2 rates)
 python src/asr/eval/asr_bakeoff.py --initial-prompt --real 8   # both models, raw vs recoverable
@@ -218,6 +225,11 @@ prompt alone also ~halves WER (0.47→0.22). `whisper-multilingual` is the pick 
 **provisional** until confirmed on real voice (`data/asr_probe/README.md`). The matcher SUGGESTS
 only — never auto-rewrites a drug name. Torch is **isolated to `src/asr/*`**; the RAG core and the
 offline tests stay torch-free.
+
+**Production runtime = CTranslate2 / faster-whisper** (`int8_float16`), migrated from the HF
+Transformers runtime (`docs/ASR_CT2_MIGRATION.md`): identical recoverable-recall (93.9%), ~2× faster
+decode (0.89→0.43s), ~half the VRAM, cold-start 7.9→2.1s. Build the CT2 weights once from the cached
+HF model with `python src/asr/eval/convert_ct2.py`; the live transcriber and the bake-off share it.
 
 **Push-to-talk in the web app (live).** The chat composer has a 🎙 button: the browser captures mic
 audio and encodes a mono WAV in-page (`frontend/src/audio.js` — Web Audio API, no MediaRecorder/webm
@@ -236,7 +248,10 @@ not retuned here.
 ```powershell
 pytest tests/ -v
 ```
-78 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
+97 tests: MAP / qSOFA / NEWS2 / eGFR / conversions plus regressions for GCS-as-string and
 age-None (`test_calculator.py`), chunker schema/packing (`test_chunker.py`), the RAG safety
-gate / OpenFDA checks / citation guard / verifier decision tree / fallback contract with a
-mocked LLM (`test_rag.py`), and the web API catalog/profile endpoints offline (`test_web.py`).
+gate / OpenFDA checks / citation guard / verifier decision tree + evidence-binding (fuzzy
+grounding, NLI confidence gate) / fallback contract with a mocked LLM (`test_rag.py`), the
+query-embedding LRU cache (`test_embedding.py`), and the web API catalog/profile endpoints
+offline (`test_web.py`). All offline and **torch-free** (the local NLI / ASR models are
+lazy-loaded only in the live pipeline).
