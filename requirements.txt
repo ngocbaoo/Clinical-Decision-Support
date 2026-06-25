@@ -15,14 +15,17 @@ uvicorn>=0.29.0            # ASGI server: uvicorn web.app:app --app-dir src
 # Tests
 pytest>=8.0.0
 
-# --- OPTIONAL: voice ASR module (src/asr/*) — MultiMed-ST whisper bake-off ---
-# NOT installed by default. This is the ONE place that needs torch; it is isolated to src/asr/*
-# (the RAG/embedding core stays torch-free). For the RTX 3050 Ti install the CUDA build of torch:
+# --- OPTIONAL: voice ASR module (src/asr/*) — MultiMed-ST whisper, served via CTranslate2 ---
+# NOT installed by default. Isolated to src/asr/* (the RAG/embedding core stays torch-free). The
+# serve-time runtime is faster-whisper/CTranslate2 (int8_float16); transformers+torch are only
+# needed to CONVERT the weights once (convert_ct2.py) and to pull reference clips. For the RTX
+# 3050 Ti install the CUDA build of torch:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu124
-#   pip install transformers>=4.40.0 jiwer>=3.0.0 soundfile>=0.12.0 librosa>=0.10.0 \
-#               datasets>=2.18.0 gTTS>=2.5.0
+#   pip install faster-whisper>=1.0.0 ctranslate2>=4.0.0 transformers>=4.40.0 jiwer>=3.0.0 \
+#               soundfile>=0.12.0 librosa>=0.10.0 datasets>=2.18.0 gTTS>=2.5.0
 # gTTS renders the Vietnamese drug-name test audio; datasets pulls real MultiMed-ST clips for a
-# reference WER. Run: python src/asr/eval/gen_audio.py  then  python src/asr/eval/asr_bakeoff.py
+# reference WER. Run: python src/asr/eval/gen_audio.py  ->  python src/asr/eval/convert_ct2.py  ->
+# python src/asr/eval/asr_bakeoff.py  (see docs/ASR_CT2_MIGRATION.md)
 
 # --- OPTIONAL: local NLI verifier backend (Phase-1 spike + local_nli/hybrid) ---
 # NOT installed by default — the project is deliberately torch-free (embeddings go via

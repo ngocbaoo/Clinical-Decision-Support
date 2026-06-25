@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from asr.config import DECODE  # noqa: E402
 from asr.drug_match import suggest_drugs  # noqa: E402
 from asr.eval.drug_test_cases import DRUG_TEST_CASES  # noqa: E402
 from asr.eval.metrics import cer, drug_hits, normalize_vi, recoverable_hits, wer  # noqa: E402
@@ -82,3 +83,17 @@ def test_recoverable_recall_counts_verbatim_and_matched():
     assert by["Vancomycin"]["verbatim"] is False      # garbled, not verbatim
     assert by["Vancomycin"]["recoverable"] is True     # but the matcher offers it
     assert by["Propofol"]["recoverable"] is True
+
+
+# --- decoder config (the experiment-chosen production decoding; no torch) --------------------
+
+def test_decode_config_is_well_formed():
+    # gate the production decoder shape so a bad edit fails offline, before any model loads.
+    # These are faster-whisper (CTranslate2) params now — no torch/attn backend.
+    assert isinstance(DECODE, dict)
+    assert DECODE["compute_type"] in {"int8", "int8_float16", "int8_bfloat16", "float16", "float32"}
+    assert isinstance(DECODE["beam_size"], int) and DECODE["beam_size"] >= 1
+    temp = DECODE.get("temperature", 0.0)  # scalar (greedy) or fallback list/tuple
+    assert isinstance(temp, (int, float, list, tuple)), "temperature: scalar or fallback sequence"
+    if isinstance(temp, (list, tuple)):
+        assert temp[0] == 0.0 and all(t >= 0 for t in temp)  # fallback starts greedy

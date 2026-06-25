@@ -1,5 +1,5 @@
 """
-ASR bake-off + gate-effectiveness: MultiMed-ST whisper-vi vs whisper-multilingual.
+ASR bake-off + gate-effectiveness for MultiMed-ST whisper-multilingual, served via CTranslate2.
 
 Each model transcribes Vietnamese drug-name audio; we score two things:
   - **raw drug-name recall** — did the drug name survive ASR verbatim? (F-ASR-03)
@@ -36,26 +36,55 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 from asr.config import (ASR_MODELS, ASR_REPO, ASR_REPORT_FILE, ASR_REPORT_JSON,  # noqa: E402
-                        ASR_TEST_DIR, TTS_VARIANTS)
+                        ASR_TEST_DIR, DECODE)
 from asr.drug_lexicon import PROMPT_DRUGS  # noqa: E402
 from asr.drug_match import suggest_drugs  # noqa: E402
 from asr.eval.drug_test_cases import DRUG_TEST_CASES  # noqa: E402
-from asr.eval.gen_audio import clip_path  # noqa: E402
 from asr.eval.metrics import cer, drug_hits, recoverable_hits, wer  # noqa: E402
 
 _CASE_BY_ID = {c["id"]: c for c in DRUG_TEST_CASES}
 _HEADLINE_EXCLUDE = {"slow"}  # variants kept out of the headline aggregate (TTS artifact)
-_AUDIO_EXTS = ("*.wav", "*.webm", "*.mp3", "*.m4a", "*.ogg", "*.flac")
+_AUDIO_EXTS = ("wav", "webm", "mp3", "m4a", "ogg", "flac")
+
+# Decoding conditions for the optimization sweep, now expressed as faster-whisper (CTranslate2)
+# params. `compute_type` is the load-time quantization; `gen` is passed to transcribe(). "tuned"
+# mirrors the production config.DECODE so the chosen settings are validated end-to-end. The greedy
+# decision (docs/ASR_REPORT.md §4.6) and the int8_float16 precision choice (docs/ASR_CT2_MIGRATION.md)
+# are both re-checkable here: `beam`/`robust` should still regress recoverability vs `greedy`, and
+# `fp16` should match `greedy` (quantization is recall-neutral).
+_ROBUST = {"temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0], "compression_ratio_threshold": 2.4,
+           "log_prob_threshold": -1.0, "no_speech_threshold": 0.6}
+_DECODE_CONDITIONS = {
+    "greedy": {"compute_type": "int8_float16", "gen": {"beam_size": 1, "temperature": 0.0}},
+    "beam":   {"compute_type": "int8_float16", "gen": {"beam_size": 5, "temperature": 0.0}},
+    "robust": {"compute_type": "int8_float16", "gen": {"beam_size": 5, **_ROBUST}},
+    "fp16":   {"compute_type": "float16",      "gen": {"beam_size": 1, "temperature": 0.0}},
+}
+
+
+def _decode_spec(name: str) -> dict:
+    """Resolve a --decode name to {compute_type, gen}. 'tuned' reads the production config.DECODE."""
+    if name == "tuned":
+        return {"compute_type": DECODE.get("compute_type", "int8_float16"),
+                "gen": {k: v for k, v in DECODE.items() if k != "compute_type"}}
+    if name not in _DECODE_CONDITIONS:
+        raise SystemExit(f"unknown --decode {name!r}; choices: tuned, {', '.join(_DECODE_CONDITIONS)}")
+    return _DECODE_CONDITIONS[name]
 
 
 def _curated_clips() -> list[dict]:
+    """Every audio file in data/asr_test/ whose name starts with a case id 'dNN_'. The variant is
+    the suffix after the id (normal/slow/hoaimy/namminh/…), so added voices are scored too."""
     clips = []
     for case in DRUG_TEST_CASES:
-        for vkey in TTS_VARIANTS:
-            p = clip_path(case["id"], vkey)
-            if p.exists() and p.stat().st_size > 0:
-                clips.append({"sample_id": f"{case['id']}_{vkey}", "variant": vkey,
-                              "text": case["text"], "drugs": case["drugs"], "path": str(p)})
+        cid = case["id"]
+        files = sorted(p for ext in _AUDIO_EXTS for p in ASR_TEST_DIR.glob(f"{cid}_*.{ext}"))
+        for p in files:
+            if p.stat().st_size == 0:
+                continue
+            variant = p.stem[len(cid) + 1:] or "default"  # strip 'dNN_'
+            clips.append({"sample_id": p.stem, "variant": variant,
+                          "text": case["text"], "drugs": case["drugs"], "path": str(p)})
     return clips
 
 
@@ -64,7 +93,7 @@ def _probe_clips() -> list[dict]:
     (ground-truth text+drugs); 'noisy' in the name tags it as the noise stress variant."""
     from asr.config import DATA_DIR
     probe_dir = DATA_DIR / "asr_probe"
-    files = sorted(p for ext in _AUDIO_EXTS for p in probe_dir.glob(ext))
+    files = sorted(p for ext in _AUDIO_EXTS for p in probe_dir.glob(f"*.{ext}"))
     clips = []
     for p in files:
         m = re.match(r"(d\d+)", p.stem)
@@ -117,18 +146,28 @@ def _pct(hit: int, tot: int):
 
 
 def _run(key: str, samples: list[dict], prompt: str | None, condition: str,
-         real: list[dict]) -> dict:
-    """Transcribe all samples (optionally with a biasing prompt); score raw + recoverable."""
+         real: list[dict], decode: dict | None = None, compute_type: str | None = None) -> dict:
+    """Transcribe all samples (optionally with a biasing prompt + decode override); score raw +
+    recoverable. `compute_type` picks the CT2 quantization at load; `decode` sets the gen params."""
     from asr.transcriber import WhisperTranscriber
     print(f"\n=== {key} [{condition}] ({ASR_MODELS[key]['label']}) ===")
-    tr = WhisperTranscriber(key)
-    print(f"  device={tr.device} dtype={tr.dtype} prompt={'yes' if prompt else 'no'}")
+    tr = WhisperTranscriber(key, compute_type=compute_type)
+    print(f"  device={tr.device} compute_type={tr.compute_type} "
+          f"prompt={'yes' if prompt else 'no'} decode={decode if decode is not None else 'config'}")
+
+    # Untimed warmup so the first clip's one-off CUDA kernel init doesn't skew this condition's
+    # latency median — the latency comparison across conditions is part of the decision gate.
+    try:
+        w = librosa.load(samples[0]["path"], sr=None, mono=True)
+        tr.transcribe(w[0], w[1], prompt=prompt, decode=decode)
+    except Exception:  # noqa: BLE001 — warmup is best-effort; real timing happens below
+        pass
 
     rows, latencies = [], []
     for s in samples:
         try:
             y, sr = librosa.load(s["path"], sr=None, mono=True)
-            res = tr.transcribe(y, sr, prompt=prompt)
+            res = tr.transcribe(y, sr, prompt=prompt, decode=decode)
             hyp = res["text"]
             rows.append({"sample_id": s["sample_id"], "variant": s["variant"], "ref": s["text"],
                          "hyp": hyp, "wer": round(wer(s["text"], hyp), 4),
@@ -147,17 +186,24 @@ def _run(key: str, samples: list[dict], prompt: str | None, condition: str,
     real_rows = []
     for s in real:
         try:
-            res = tr.transcribe(s["audio"], s["sr"], prompt=prompt)
+            res = tr.transcribe(s["audio"], s["sr"], prompt=prompt, decode=decode)
             real_rows.append({"sample_id": s["sample_id"], "wer": round(wer(s["text"], res["text"]), 4)})
         except Exception as err:
             real_rows.append({"sample_id": s["sample_id"], "error": str(err)})
+
+    # Free the model before the next condition reloads one — the 4GB GPU can't hold two at once.
+    # CTranslate2 releases device memory when the model object is dropped (no torch cache to clear).
+    import gc
+    compute_used = tr.compute_type
+    del tr
+    gc.collect()
 
     scored = [r for r in rows if "wer" in r]
     rw = [r["wer"] for r in real_rows if "wer" in r]
     hraw_h, hraw_t = _agg(rows, "raw", _HEADLINE_EXCLUDE)
     hrec_h, hrec_t = _agg(rows, "rec", _HEADLINE_EXCLUDE)
     return {
-        "key": key, "label": ASR_MODELS[key]["label"], "condition": condition,
+        "key": key, "label": ASR_MODELS[key]["label"], "condition": condition, "compute_type": compute_used,
         "headline_raw": _pct(hraw_h, hraw_t), "headline_raw_n": [hraw_h, hraw_t],
         "headline_rec": _pct(hrec_h, hrec_t), "headline_rec_n": [hrec_h, hrec_t],
         "wer_mean": round(statistics.mean(r["wer"] for r in scored), 4) if scored else None,
@@ -267,6 +313,8 @@ def main() -> None:
     ap.add_argument("--probe", action="store_true", help="use real recordings in data/asr_probe/ (the gate)")
     ap.add_argument("--tts", action="store_true", help="use the curated gTTS clips (default if neither flag)")
     ap.add_argument("--initial-prompt", action="store_true", help="add a second pass biasing toward ICU drugs")
+    ap.add_argument("--decode", nargs="+", default=["tuned"],
+                    help="decoding conditions to sweep: greedy beam robust fp16 tuned (default: tuned)")
     ap.add_argument("--real", type=int, default=0, help="also run N real MultiMed-ST clips (reference WER)")
     ap.add_argument("--models", nargs="+", default=list(ASR_MODELS), help="subset of model keys")
     args = ap.parse_args()
@@ -281,12 +329,17 @@ def main() -> None:
     print(f"{len(samples)} clips; real reference: {args.real}")
     real = _real_clips(args.real) if args.real else []
 
-    conditions = [("base", None)] + ([("prompt", PROMPT_DRUGS)] if args.initial_prompt else [])
+    prompt_axis = [("base", None)] + ([("prompt", PROMPT_DRUGS)] if args.initial_prompt else [])
+    decode_axis = [(d, _decode_spec(d)) for d in args.decode]  # validates names up front
     results = []
     for key in args.models:
-        for cond, prompt in conditions:
-            results.append(_run(key, samples, prompt, cond, real if cond == "base" else []))
-            _write_report(results, _pick_winner(results))  # incremental safety write
+        for dname, spec in decode_axis:
+            for plabel, prompt in prompt_axis:
+                label = f"{plabel}+{dname}"
+                results.append(_run(key, samples, prompt, label,
+                                    real if plabel == "base" else [],
+                                    decode=spec["gen"], compute_type=spec["compute_type"]))
+                _write_report(results, _pick_winner(results))  # incremental safety write
 
     winner = _pick_winner(results)
     _write_report(results, winner)

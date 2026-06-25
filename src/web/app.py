@@ -56,9 +56,10 @@ def get_pipeline():
     return _pipeline
 
 
-# ASR is loaded just as lazily as the pipeline: the heavy torch/transformers import and the
-# multi-GB whisper checkpoint never touch the offline catalog/profile path (or the offline tests).
-# It is built on the first /api/asr/transcribe call. Keeps the no-torch isolation of src/asr/* intact.
+# ASR is loaded just as lazily as the pipeline: the CTranslate2 model and faster-whisper import
+# never touch the offline catalog/profile path (or the offline tests). It is built on the first
+# /api/asr/transcribe call. The serve-time runtime is torch-free (ctranslate2 only); the int8 model
+# loads in ~2s vs the old ~8s transformers cold-start (docs/ASR_CT2_MIGRATION.md).
 _transcriber = None
 
 
