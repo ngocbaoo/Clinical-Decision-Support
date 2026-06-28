@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getProfile, getAssessment, sendChat, transcribeAudio } from "./api.js";
 import { createRecorder } from "./audio.js";
+import {
+  IconMic, IconStop, IconSend, IconShield, IconAlert,
+  IconPill, IconBack, IconClock, IconActivity,
+} from "./icons.jsx";
+
+function initials(name = "") {
+  const w = name.trim().split(/\s+/);
+  return ((w.at(-1)?.[0] || "") + (w.length > 1 ? w[0][0] : "")).toUpperCase();
+}
 
 // Turn a backend answer payload into a chat message. A fallback is a DELIBERATE safety
 // refusal, so it gets its own emphasized kind — never a muted/error look.
@@ -29,7 +38,7 @@ export default function PatientChat() {
     setProfile(null); setMessages([]); setOpenerLoading(true); setProfileErr(null);
     getProfile(pid).then((p) => alive && setProfile(p)).catch((e) => alive && setProfileErr(e.message));
     getAssessment(pid)
-      .then((a) => alive && setMessages([toMessage(a, { opener: true })]))
+      .then((a) => alive && setMessages([{ role: "ai", kind: "assessment", data: a }]))
       .catch((e) => alive && setMessages([{ role: "ai", kind: "error", answer: `Không tạo được đánh giá ban đầu: ${e.message}` }]))
       .finally(() => alive && setOpenerLoading(false));
     return () => { alive = false; };
@@ -97,6 +106,7 @@ export default function PatientChat() {
     <div className="chat-layout">
       <ProfilePanel pid={pid} profile={profile} error={profileErr} />
       <main className="chat-main">
+        <ChatHeader pid={pid} profile={profile} />
         <div className="chat-scroll" ref={scrollRef}>
           {messages.map((m, i) =>
             m.role === "user" ? (
@@ -105,12 +115,14 @@ export default function PatientChat() {
               <AiMessage key={i} m={m} />
             )
           )}
-          {openerLoading && <div className="msg msg-ai loading">Đang đánh giá bệnh nhân…</div>}
-          {busy && <div className="msg msg-ai loading">Đang phân tích…</div>}
+          {openerLoading && <Loading text="Đang đánh giá bệnh nhân…" />}
+          {busy && <Loading text="Đang phân tích…" />}
         </div>
         {suggestions.length > 0 && (
           <div className="drug-suggest">
-            <span className="drug-suggest-head">💊 Gợi ý tên thuốc (hãy kiểm tra trước khi gửi):</span>
+            <span className="drug-suggest-head">
+              <IconPill width={16} height={16} /> Gợi ý tên thuốc (hãy kiểm tra trước khi gửi):
+            </span>
             {suggestions.map((s, i) => (
               <span key={i} className="drug-suggest-group">
                 <button type="button" className="drug-chip"
@@ -134,32 +146,133 @@ export default function PatientChat() {
             className={`mic-btn${recording ? " recording" : ""}`}
             onClick={toggleRecord}
             disabled={busy || transcribing}
+            aria-label={recording ? "Dừng ghi âm" : "Nói câu hỏi"}
             title={recording ? "Dừng ghi âm" : "Nói câu hỏi"}
           >
-            {recording ? "⏹" : transcribing ? "…" : "🎙"}
+            {recording ? <IconStop /> : transcribing ? <span className="dots"><i /><i /><i /></span> : <IconMic />}
           </button>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={recording ? "Đang nghe… nhấn ⏹ để dừng"
+            placeholder={recording ? "Đang nghe… nhấn ■ để dừng"
               : transcribing ? "Đang nhận dạng giọng nói…" : "Hỏi về bệnh nhân này…"}
             disabled={busy}
+            aria-label="Câu hỏi lâm sàng"
           />
-          <button type="submit" disabled={busy || !input.trim()}>Gửi</button>
+          <button type="submit" className="btn-send" disabled={busy || !input.trim()}>
+            <IconSend width={18} height={18} /> Gửi
+          </button>
         </form>
       </main>
     </div>
   );
 }
 
+const Loading = ({ text }) => (
+  <div className="msg msg-ai loading">
+    <span className="dots"><i /><i /><i /></span> {text}
+  </div>
+);
+
+function ChatHeader({ pid, profile }) {
+  const allergyCount = profile?.allergies?.length || 0;
+  return (
+    <header className="chat-header">
+      <span className="avatar" aria-hidden="true">{initials(profile?.name || "")}</span>
+      <span className="chat-header-id">
+        <div className="chat-header-name">{profile?.name || "Đang tải hồ sơ…"}</div>
+        <div className="chat-header-sub">
+          {[profile?.gender, profile?.age != null ? `${profile.age} tuổi` : null, pid]
+            .filter(Boolean).join(" · ")}
+        </div>
+      </span>
+      <span className="chat-header-spacer" />
+      {allergyCount > 0 && (
+        <span className="chat-header-allergy" title="Bệnh nhân có dị ứng — kiểm tra trước khi kê đơn">
+          <IconAlert width={15} height={15} /> {allergyCount} dị ứng
+        </span>
+      )}
+    </header>
+  );
+}
+
+function AssessmentCard({ data }) {
+  const { name, subtitle, score_flags = [], allergies = [], drug_alerts = [],
+    conditions = [], note } = data || {};
+  const hasFindings = score_flags.length || allergies.length || drug_alerts.length;
+  return (
+    <div className="assessment-card">
+      <div className="assessment-head">
+        <span className="assessment-kicker"><IconShield width={14} height={14} /> Đánh giá ban đầu</span>
+        <h3>{name}</h3>
+        {subtitle && <div className="subtle small">{subtitle}</div>}
+      </div>
+
+      {drug_alerts.length > 0 && (
+        <div className="assessment-section">
+          <div className="assessment-section-title danger">
+            <IconAlert width={15} height={15} /> Cảnh báo an toàn thuốc
+          </div>
+          {drug_alerts.map((a, i) => (
+            <div key={i} className={`safety-row ${a.severity}`}>
+              <strong>{a.title}</strong>
+              {a.detail && <span className="subtle small"> — {a.detail}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {allergies.length > 0 && (
+        <div className="assessment-section">
+          <div className="assessment-section-title danger">Dị ứng đã ghi nhận</div>
+          {allergies.map((a, i) => (
+            <div key={i} className="safety-row danger">
+              <strong>{a.allergen}</strong>
+              {a.criticality && <span className="pill pill-danger">{a.criticality}</span>}
+              {a.reaction && <span className="subtle small"> — {a.reaction}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {score_flags.length > 0 && (
+        <div className="assessment-section">
+          <div className="assessment-section-title warn">
+            <IconActivity width={15} height={15} /> Điểm lâm sàng cần lưu ý
+          </div>
+          <ul className="bullets">{score_flags.map((s, i) => <li key={i}>{s}</li>)}</ul>
+        </div>
+      )}
+
+      {!hasFindings && (
+        <div className="safety-row ok">
+          Không có cảnh báo an toàn nổi bật từ hồ sơ. Đặt câu hỏi bên dưới để được tư vấn.
+        </div>
+      )}
+
+      {conditions.length > 0 && (
+        <div className="assessment-section">
+          <div className="assessment-section-title">Chẩn đoán</div>
+          <div className="subtle small">{conditions.join(" · ")}</div>
+        </div>
+      )}
+
+      {note && <p className="assessment-note">{note}</p>}
+    </div>
+  );
+}
+
 function AiMessage({ m }) {
+  if (m.kind === "assessment") return <AssessmentCard data={m.data} />;
   if (m.kind === "error") return <div className="msg msg-ai error-box">{m.answer}</div>;
 
   if (m.kind === "fallback") {
     // Deliberate safety decision — clearly communicated, not hidden as a bug.
     return (
-      <div className="msg msg-ai safety-decision">
-        <div className="safety-decision-head">🛡️ Quyết định an toàn — không trả lời tự do</div>
+      <div className="safety-decision">
+        <div className="safety-decision-head">
+          <IconShield width={18} height={18} /> Quyết định an toàn — không trả lời tự do
+        </div>
         <p>{m.answer}</p>
         {m.fallback_reason && <div className="subtle small">Lý do hệ thống: {m.fallback_reason}</div>}
         <Badge m={m} />
@@ -169,13 +282,18 @@ function AiMessage({ m }) {
 
   return (
     <div className={`msg msg-ai${m.kind === "alert" ? " has-alert" : ""}`}>
-      {m.kind === "alert" && <div className="alert-tag">⚠️ Cảnh báo an toàn</div>}
+      {m.kind === "alert" && (
+        <div className="alert-tag"><IconAlert width={17} height={17} /> Cảnh báo an toàn</div>
+      )}
       <p className="answer-text">{m.answer}</p>
       {m.cited_sources?.length > 0 && (
         <div className="sources">
           <div className="sources-head">Nguồn</div>
           {m.cited_sources.map((s) => (
-            <div key={s.n} className="source-item">[{s.n}] {s.source} — {s.title}</div>
+            <div key={s.n} className="source-item">
+              <span className="source-n">[{s.n}]</span>
+              <span>{s.source} — {s.title}</span>
+            </div>
           ))}
         </div>
       )}
@@ -190,7 +308,7 @@ function Badge({ m }) {
   if (t == null && !branch) return null;
   return (
     <div className="badge">
-      {t != null && <span>{t}s</span>}
+      {t != null && <span><IconClock width={13} height={13} /> {t}s</span>}
       {branch && <span>verify: {branch}</span>}
     </div>
   );
@@ -199,75 +317,79 @@ function Badge({ m }) {
 function ProfilePanel({ pid, profile, error }) {
   return (
     <aside className="profile">
-      <Link to="/" className="back-link">← Đổi bệnh nhân</Link>
-      {error && <div className="error-box">Không tải được hồ sơ: {error}</div>}
-      {!profile && !error && <div className="subtle">Đang tải hồ sơ…</div>}
-      {profile && (
-        <>
-          <h2>{profile.name}</h2>
-          <div className="subtle">
-            {[profile.gender, profile.age != null ? `${profile.age} tuổi` : null, pid]
-              .filter(Boolean).join(" · ")}
-          </div>
-          {profile.encounter?.service_type && (
-            <div className="subtle small">{profile.encounter.service_type}</div>
-          )}
-
-          {profile.allergies.length > 0 && (
-            <Section title="Dị ứng">
-              {profile.allergies.map((a, i) => (
-                <div key={i} className="allergy">
-                  <strong>{a.allergen}</strong>
-                  {a.criticality && <span className="pill pill-danger">{a.criticality}</span>}
-                  {a.reaction && <span className="subtle small"> — {a.reaction}</span>}
-                </div>
-              ))}
-            </Section>
-          )}
-
-          <Section title="Điểm lâm sàng">
-            <div className="scores">
-              <Score label="qSOFA" value={profile.scores.qsofa} danger={profile.scores.qsofa_positive} suffix="/3" />
-              <Score label="SOFA" value={profile.scores.sofa} suffix="/24" />
-              <Score label="NEWS2" value={profile.scores.news2} sub={profile.scores.news2_risk} />
-              <Score label="MAP" value={profile.scores.map} />
-              <Score label="eGFR" value={profile.scores.egfr} sub={profile.scores.egfr_stage} />
+      <div className="profile-inner">
+        <Link to="/" className="back-link"><IconBack width={16} height={16} /> Đổi bệnh nhân</Link>
+        {error && <div className="error-box">Không tải được hồ sơ: {error}</div>}
+        {!profile && !error && <div className="subtle">Đang tải hồ sơ…</div>}
+        {profile && (
+          <>
+            <h2>{profile.name}</h2>
+            <div className="profile-meta">
+              {[profile.gender, profile.age != null ? `${profile.age} tuổi` : null, pid]
+                .filter(Boolean).join(" · ")}
             </div>
-          </Section>
+            {profile.encounter?.service_type && (
+              <div className="profile-service">{profile.encounter.service_type}</div>
+            )}
 
-          {profile.conditions.length > 0 && (
-            <Section title="Chẩn đoán">
-              <ul className="bullets">{profile.conditions.map((c, i) => <li key={i}>{c}</li>)}</ul>
-            </Section>
-          )}
-
-          {profile.medications.length > 0 && (
-            <Section title="Thuốc đang dùng">
-              <ul className="bullets">
-                {profile.medications.map((m, i) => (
-                  <li key={i}>{m.name}{m.dose ? ` — ${m.dose}` : ""}</li>
+            {profile.allergies.length > 0 && (
+              <Section title="Dị ứng" danger>
+                {profile.allergies.map((a, i) => (
+                  <div key={i} className="allergy">
+                    <strong>{a.allergen}</strong>
+                    {a.criticality && <span className="pill pill-danger">{a.criticality}</span>}
+                    {a.reaction && <span className="subtle small"> — {a.reaction}</span>}
+                  </div>
                 ))}
-              </ul>
-            </Section>
-          )}
+              </Section>
+            )}
 
-          {profile.vitals.length > 0 && (
-            <Section title="Chỉ số">
-              <div className="vitals">
-                {profile.vitals.map((v, i) => (
-                  <span key={i} className="vital">{v.key}: <strong>{v.value}{v.unit}</strong></span>
-                ))}
+            <Section title="Điểm lâm sàng">
+              <div className="scores">
+                <Score label="qSOFA" value={profile.scores.qsofa} danger={profile.scores.qsofa_positive} suffix="/3" />
+                <Score label="SOFA" value={profile.scores.sofa} suffix="/24" />
+                <Score label="NEWS2" value={profile.scores.news2} sub={profile.scores.news2_risk} />
+                <Score label="MAP" value={profile.scores.map} />
+                <Score label="eGFR" value={profile.scores.egfr} sub={profile.scores.egfr_stage} />
               </div>
             </Section>
-          )}
-        </>
-      )}
+
+            {profile.conditions.length > 0 && (
+              <Section title="Chẩn đoán">
+                <ul className="bullets">{profile.conditions.map((c, i) => <li key={i}>{c}</li>)}</ul>
+              </Section>
+            )}
+
+            {profile.medications.length > 0 && (
+              <Section title="Thuốc đang dùng">
+                <ul className="bullets">
+                  {profile.medications.map((m, i) => (
+                    <li key={i}>{m.name}{m.dose ? ` — ${m.dose}` : ""}</li>
+                  ))}
+                </ul>
+              </Section>
+            )}
+
+            {profile.vitals.length > 0 && (
+              <Section title="Chỉ số">
+                <div className="vitals">
+                  {profile.vitals.map((v, i) => (
+                    <span key={i} className="vital">{v.key}: <strong>{v.value}{v.unit}</strong></span>
+                  ))}
+                </div>
+              </Section>
+            )}
+          </>
+        )}
+      </div>
     </aside>
   );
 }
 
-const Section = ({ title, children }) => (
-  <section className="psection"><div className="psection-title">{title}</div>{children}</section>
+const Section = ({ title, children, danger }) => (
+  <section className={`psection${danger ? " psection-allergy" : ""}`}>
+    <div className="psection-title">{title}</div>{children}
+  </section>
 );
 
 function Score({ label, value, suffix = "", sub, danger }) {

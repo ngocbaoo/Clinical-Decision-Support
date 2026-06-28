@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from embedding.chunker import (  # noqa: E402
-    _pack_lines, chunk_generic, MAX_CHARS, MIN_CHARS,
+    _pack_lines, chunk_generic, _promote_inline_titles, MAX_CHARS, MIN_CHARS,
 )
 from embedding.embedder import _flatten_metadata  # noqa: E402
 
@@ -62,3 +62,38 @@ def test_chunk_generic_drops_tiny_blocks():
     # A single short line is below MIN_CHARS and should produce no chunks.
     assert chunk_generic("too short", "X", title="X") == []
     assert MIN_CHARS > len("too short")
+
+
+# ── _promote_inline_titles (lost-header recovery) ──────
+def test_promotes_inline_procedure_title():
+    # Title buried mid-line after the previous procedure's text -> becomes a '## ' header.
+    text = ("...giảm tử vong của người bệnh. Bác sỹ QUY TRÌNH KỸ THUẬT SỬ DỤNG HUYẾT THANH "
+            "KHÁNG NỌC RẮN ĐẠI CƯƠNG I. Rắn độc cắn là...")
+    out, n = _promote_inline_titles(text)
+    assert n == 1
+    assert "\n## QUY TRÌNH KỸ THUẬT SỬ DỤNG HUYẾT THANH KHÁNG NỌC RẮN\n" in out
+    assert "ĐẠI CƯƠNG I. Rắn độc cắn" in out  # section marker kept as body
+
+
+def test_promote_handles_both_marker_orders():
+    a, na = _promote_inline_titles("xyz QUY TRÌNH KỸ THUẬT GHI ĐIỆN TIM TẠI GIƯỜNG I. ĐẠI CƯƠNG abc")
+    assert na == 1 and "## QUY TRÌNH KỸ THUẬT GHI ĐIỆN TIM TẠI GIƯỜNG\n" in a
+
+
+def test_promote_skips_chapter_banner():
+    # "TRONG CẤP CỨU HỒI SỨC BỆNH LÝ ..." is a CHƯƠNG banner, not a procedure -> not promoted.
+    _, n = _promote_inline_titles("mục lục QUY TRÌNH KỸ THUẬT TRONG CẤP CỨU HỒI SỨC BỆNH LÝ HÔ HẤP "
+                                  "ĐẠI CƯƠNG ...")
+    assert n == 0
+
+
+def test_promote_does_not_refire_on_real_header():
+    # An already-correct '## ' header must not be split again (negative lookbehind on '#').
+    _, n = _promote_inline_titles("## QUY TRÌNH KỸ THUẬT ĐẶT ỐNG THÔNG DẠ DÀY I. ĐẠI CƯƠNG nội dung")
+    assert n == 0
+
+
+def test_promote_leaves_unrelated_text_untouched():
+    text = "Bệnh nhân sốt cao, truyền dịch theo phác đồ. Không có tiêu đề quy trình ở đây."
+    out, n = _promote_inline_titles(text)
+    assert n == 0 and out == text

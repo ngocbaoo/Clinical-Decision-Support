@@ -17,6 +17,11 @@ from rag.config import DISCLAIMER  # noqa: E402
 from rag.verifier import (decide, verify_answer, _is_effective_safety,  # noqa: E402
                           _evidence_matches, _evidence_grounded)
 from rag.logging_utils import log_request  # noqa: E402
+from rag.fusion import (rrf_fuse, comorbidity_fuse,  # noqa: E402
+                        comorbidity_names, comorbidity_queries)
+from rag.reranker import order_by_rerank  # noqa: E402  (pure helper; torch only in the class)
+from rag.comorbidity_gate import (check_comorbidity_conflicts,  # noqa: E402
+                                  apply_comorbidity_gate)
 
 
 def _chunks(scores=(0.7, 0.6)):
@@ -517,8 +522,9 @@ def test_pipeline_runs_retrieval_and_safety_in_parallel(monkeypatch):
     monkeypatch.setattr(P, "route", lambda q, chat: {
         "intent": "general", "drugs": ["aspirin"], "procedures": [], "via": "stub"})
     monkeypatch.setattr(pipe, "retrieve_for_intent",
-                        lambda q, i: (_t.sleep(0.4) or [{"text": "c", "source": "s",
-                                      "title": "t", "score": 0.9, "chunk_type": "x"}]))
+                        lambda q, i, comorbidities=None: (_t.sleep(0.4) or [{"text": "c",
+                                      "source": "s", "title": "t", "score": 0.9,
+                                      "chunk_type": "x"}]))
     monkeypatch.setattr(P, "check_allergies", lambda d, c: (_t.sleep(0.4) or []))
     monkeypatch.setattr(P, "check_contraindications", lambda d, c: [])
     monkeypatch.setattr(P, "check_drug_interactions", lambda d, c: [])
@@ -561,3 +567,141 @@ def test_summarize_patient_lists_missing_obs():
 
 def test_summarize_patient_no_context():
     assert "guideline chung" in summarize_patient({}, {})
+
+
+# --- Comorbidity-aware retrieval / RRF (src/rag/fusion.py) --------------------
+
+def _doc(t, score=0.0):
+    return {"text": t, "chunk_type": "procedure", "score": score}
+
+
+def test_rrf_single_list_is_identity_order():
+    lst = [_doc("a"), _doc("b"), _doc("c")]
+    assert [d["text"] for d in rrf_fuse([lst])] == ["a", "b", "c"]
+
+
+def test_rrf_dedup_accumulates_across_lists():
+    # 'shared' appears in both lists -> its summed RRF score beats singletons -> ranks first.
+    primary = [_doc("p1"), _doc("shared")]
+    aux = [_doc("shared"), _doc("x")]
+    fused = [d["text"] for d in rrf_fuse([primary, aux])]
+    assert fused[0] == "shared"
+    # the original primary dict is kept (first occurrence), not the aux copy
+    assert rrf_fuse([primary, aux])[0] is primary[1]
+
+
+def test_comorbidity_fuse_keeps_full_primary_and_appends():
+    # ABSOLUTE recall guarantee: the entire primary top-K is preserved; comorbidity is APPENDED.
+    primary = [_doc("p1", 0.8), _doc("p2", 0.7), _doc("p3", 0.6), _doc("p4_tail", 0.5)]
+    aux = [[_doc("comorbid", 0.7)]]
+    out = [d["text"] for d in comorbidity_fuse(primary, aux, n_results=4, comorbidity_slots=1)]
+    assert out[:4] == ["p1", "p2", "p3", "p4_tail"]   # nothing evicted, even the rank-4 tail
+    assert out[4] == "comorbid"                       # comorbidity appended as the +1 chunk
+
+
+def test_comorbidity_fuse_admits_best_comorbidity_by_rrf():
+    # Across two comorbidity lists, the chunk ranked high in BOTH is the one appended.
+    primary = [_doc("p1", 0.8), _doc("p2", 0.7)]
+    aux = [[_doc("shared", 0.7), _doc("a_only", 0.6)],
+           [_doc("shared", 0.7), _doc("b_only", 0.6)]]
+    out = [d["text"] for d in comorbidity_fuse(primary, aux, n_results=2, comorbidity_slots=1)]
+    assert out == ["p1", "p2", "shared"]
+
+
+def test_comorbidity_fuse_skips_irrelevant_and_degrades_to_baseline():
+    # If no aux chunk clears min_score, nothing is appended -> exactly baseline top-K.
+    primary = [_doc("p1", 0.8), _doc("p2", 0.7), _doc("p3", 0.6)]
+    aux = [[_doc("weak_comorbid", 0.20)]]
+    out = [d["text"] for d in comorbidity_fuse(primary, aux, n_results=3,
+                                               comorbidity_slots=1, min_score=0.45)]
+    assert out == ["p1", "p2", "p3"]
+
+
+def test_comorbidity_fuse_does_not_duplicate_primary():
+    # A comorbidity chunk already in primary is not appended again.
+    primary = [_doc("p1", 0.8), _doc("shared", 0.7)]
+    aux = [[_doc("shared", 0.9)]]
+    out = [d["text"] for d in comorbidity_fuse(primary, aux, n_results=2, comorbidity_slots=1)]
+    assert out == ["p1", "shared"]
+
+
+def test_comorbidity_fuse_no_aux_is_identity():
+    primary = [_doc("p1"), _doc("p2"), _doc("p3")]
+    assert comorbidity_fuse(primary, [], n_results=2, comorbidity_slots=1) == primary[:2]
+
+
+def test_comorbidity_names_extracts_and_dedups():
+    ctx = {"conditions": [
+        {"name_vi": "Suy gan do rượu"},
+        {"display": "Hepatic encephalopathy", "name_vi": "Bệnh não gan"},
+        {"name_vi": "Suy gan do rượu"},  # duplicate -> dropped
+        {"icd10_code": "N18"},           # falls back to code
+    ]}
+    names = comorbidity_names(ctx)
+    assert names == ["Suy gan do rượu", "Bệnh não gan", "N18"]
+    assert comorbidity_names({}) == [] and comorbidity_names(None) == []
+
+
+def test_comorbidity_queries_templated_and_capped():
+    qs = comorbidity_queries(["Xơ gan", "Suy thận", "Suy tim"], "lưu ý ở bệnh nhân {cond}", max_n=2)
+    assert qs == ["lưu ý ở bệnh nhân Xơ gan", "lưu ý ở bệnh nhân Suy thận"]
+
+
+# --- Cross-encoder reranker ordering (src/rag/reranker.py, torch-free helper) -
+
+def test_order_by_rerank_sorts_desc_and_annotates():
+    # The off-topic chunk leads on bi-encoder order but the reranker scores it lowest -> demoted.
+    chunks = [_doc("antivenom_junk", 0.44), _doc("sepsis_protocol", 0.41), _doc("misc", 0.40)]
+    rr_scores = [-5.2, 6.1, -1.0]   # cross-encoder: sepsis most relevant, junk least
+    out = order_by_rerank(chunks, rr_scores)
+    assert [c["text"] for c in out] == ["sepsis_protocol", "misc", "antivenom_junk"]
+    assert out[0]["rerank_score"] == 6.1
+    assert out[0]["score"] == 0.41   # original bi-encoder score preserved alongside
+
+
+def test_order_by_rerank_is_stable_on_ties_and_truncates():
+    chunks = [_doc("a"), _doc("b"), _doc("c")]
+    out = order_by_rerank(chunks, [1.0, 1.0, 0.0], top_k=2)
+    assert [c["text"] for c in out] == ["a", "b"]   # tie keeps original order; cut to top_k
+
+
+# --- Comorbidity-conflict enforcement gate (src/rag/comorbidity_gate.py) ------
+
+_LIVER_CTX = {"conditions": [{"name_vi": "Suy gan do rượu"}, {"name_vi": "Bệnh não gan"}]}
+
+
+def test_gate_flags_fluid_bolus_in_liver_failure():
+    ans = "Truyền dịch nhanh 1000-2000ml trong 1-2 giờ đầu nếu tụt huyết áp."
+    conf = check_comorbidity_conflicts(ans, _LIVER_CTX)
+    assert len(conf) == 1 and conf[0]["id"] == "aggressive_fluids"
+    assert conf[0]["comorbidity"] == "Suy gan do rượu"   # the matched condition name
+
+
+def test_gate_flags_paracetamol_in_liver_failure_diacritic_insensitive():
+    # diacritic-insensitive: "PARACETAMOL" upper-cased still matches.
+    conf = check_comorbidity_conflicts("Có thể hạ sốt bằng PARACETAMOL.", _LIVER_CTX)
+    assert any(c["id"] == "hepatotoxic_paracetamol" for c in conf)
+
+
+def test_gate_no_conflict_without_matching_comorbidity():
+    ctx = {"conditions": [{"name_vi": "Viêm phổi"}]}   # no liver/renal/cardiac
+    assert check_comorbidity_conflicts("Truyền dịch nhanh 1000-2000ml.", ctx) == []
+
+
+def test_gate_no_conflict_when_no_flagged_recommendation():
+    assert check_comorbidity_conflicts("Cấy máu và dùng kháng sinh sớm.", _LIVER_CTX) == []
+
+
+def test_apply_gate_prepends_banner_and_raises_alert():
+    resp = {"answer": "Truyền dịch nhanh 1000-2000ml.", "alerts": [], "fallback": False}
+    out = apply_comorbidity_gate(resp, _LIVER_CTX)
+    assert out["answer"].startswith("⚠️ LƯU Ý BỆNH NỀN")
+    assert "Truyền dịch nhanh" in out["answer"]            # original answer kept
+    assert any(a["type"] == "comorbidity_conflict" for a in out["alerts"])
+    assert out["comorbidity_conflicts"][0]["id"] == "aggressive_fluids"
+    assert resp["answer"] == "Truyền dịch nhanh 1000-2000ml."  # input not mutated
+
+
+def test_apply_gate_noop_on_fallback():
+    resp = {"answer": "Không đủ thông tin…", "alerts": [], "fallback": True}
+    assert apply_comorbidity_gate(resp, _LIVER_CTX) is resp

@@ -107,4 +107,50 @@ TOP_K = 4
 # whole low-value chunk cleanly -> no safe headroom here. The clean prefill win was TOP_K 5->4.
 CHUNK_CHAR_CAP = 2500
 
+# --- Comorbidity-aware retrieval (src/rag/fusion.py) --------------------------
+# Retrieval is query-driven and therefore BLIND to the patient's background pathology: a
+# "sốt cao → sốc nhiễm khuẩn" query pulls the generic fluid-bolus protocol but never the
+# "bù dịch thận trọng ở bệnh nhân xơ gan" caveat that IS in the corpus — so the generator gets a
+# protocol it cannot reconcile against the patient's comorbidities (the pt-007 liver-failure case).
+# Fix: also retrieve one auxiliary query per active comorbidity and APPEND the best comorbidity chunk
+# (chosen by RRF across the per-comorbidity lists) to the primary top-K. Recall protection is
+# ABSOLUTE: the primary list keeps its full TOP_K budget, comorbidity chunks are appended not
+# substituted, so the primary result is identical to baseline and recall cannot drop. (A first design
+# RESERVED a slot inside TOP_K and evicted the primary rank-K chunk — which silently deleted the
+# answer's core for a query whose key chunk sat exactly at rank K, e.g. the sepsis protocol at rank 4
+# for the pt-007 fever query. Never take from the primary budget.) Cost: comorbidity patients get up
+# to TOP_K + COMORBIDITY_SLOTS chunks (bounded prefill increase, back to the old TOP_K=5 for slots=1).
+# Guarded by src/rag/eval/comorbidity_retrieval_eval.py (Recall@K + Safety-priority@K hold; comorbidity
+# content surfaces across organ systems).
+COMORBIDITY_RETRIEVAL = True
+RRF_K = 60                      # RRF rank-damping constant (standard default)
+COMORBIDITY_SLOTS = 1           # max comorbidity chunks APPENDED beyond the primary TOP_K
+COMORBIDITY_MIN_SCORE = 0.45    # an aux chunk must be at least this relevant to be appended (else skip → baseline)
+MAX_COMORBIDITY_QUERIES = 3     # cap auxiliary queries (1 embed + 1 search each) for latency
+RETRIEVE_CANDIDATES = 8         # candidates pulled per list to feed RRF
+COMORBIDITY_QUERY_TEMPLATE = "xử trí và thận trọng ở bệnh nhân {cond}"
+
+# --- Cross-encoder reranker (src/rag/reranker.py) -----------------------------
+# Second-stage retrieval precision. The bi-encoder (cosine of two independent embeddings) is weak at
+# precision: on a vague query the candidates cluster near the fallback threshold and an off-topic
+# chunk can win rank-1 (the mislabeled antivenom adverse-reaction chunk that poisoned the pt-007
+# answer). A cross-encoder scores the (query, chunk) pair JOINTLY and resolves that near-tie. We pull
+# a larger bi-encoder pool (RERANK_CANDIDATES) and rerank it down to TOP_K. Torch is isolated to the
+# lazy-loaded reranker module (offline path stays torch-free). Guarded by src/rag/eval/rerank_eval.py
+# (Hit@1 should rise, Recall@K + Safety-priority@K must hold). bge-reranker-v2-m3 = cross-lingual,
+# strong on Vietnamese; ~568M params, fp16 on the 4GB GPU. Set RERANK_ENABLED=False to bypass.
+RERANK_ENABLED = True
+RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+RERANK_CANDIDATES = 20          # bi-encoder pool size handed to the reranker (then cut to TOP_K)
+RERANK_MAX_LENGTH = 512         # tokens per (query, chunk) pair
+RERANK_BATCH = 16               # pairs per forward pass (bounds GPU memory on the 4GB card)
+
+# --- Comorbidity-conflict enforcement gate (src/rag/comorbidity_gate.py) ------
+# Deterministic Risk-#1 backstop: a curated rules table of (dangerous recommendation × conflicting
+# comorbidity). When the FINAL answer contains a flagged recommendation AND the patient carries the
+# comorbidity, a mandatory warning is prepended (answer not deleted — needed care stays). Catches the
+# fluid-bolus-in-cirrhosis / paracetamol-in-liver-failure class that grounded retrieval+generation
+# can't (no corpus sentence to cite). Curated conservatively; extend rules one-at-a-time.
+COMORBIDITY_GATE_ENABLED = True
+
 DISCLAIMER = "Cần bác sĩ xác nhận trước khi thực hiện."

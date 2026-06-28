@@ -58,13 +58,39 @@ CONTRA_RE = re.compile(
 )
 
 
-def load_and_clean(filepath: str | Path = DATA_FILE) -> str:
-    """Load markdown file, apply unicode fixes, normalize whitespace."""
+# A procedure title buried inline in body text (PDF→MD lost its '## ' header), recognised by the
+# "QUY TRÌNH KỸ THUẬT <name>" run immediately followed by the first section marker "ĐẠI CƯƠNG"
+# (in either "I. ĐẠI CƯƠNG" or "ĐẠI CƯƠNG I." order). Negative lookbehind [^\s#] so it never re-fires
+# on a real "## " header. Without this, the next procedure's sections inherit the PREVIOUS
+# procedure's title — e.g. the antivenom anaphylaxis protocol (corticoid / diphenhydramin /
+# paracetamol-for-fever) got mislabeled as a lead-quantification lab test and poisoned the pt-007
+# answer (docs/RERANK.md, docs/COMORBIDITY_RETRIEVAL.md).
+# `(?!TRONG )` skips CHƯƠNG chapter banners ("QUY TRÌNH KỸ THUẬT TRONG CẤP CỨU HỒI SỨC BỆNH LÝ …");
+# the tempered body `(?:(?!QUY TRÌNH|ĐẠI CƯƠNG)[^\n]){3,80}?` keeps the captured title to a SINGLE
+# procedure name (won't sweep across a second "QUY TRÌNH" into the next title).
+INLINE_PROC_TITLE_RE = re.compile(
+    r"(?<=[^\s#]) +(QUY TRÌNH KỸ THUẬT (?!TRONG )(?:(?!QUY TRÌNH|ĐẠI CƯƠNG)[^\n]){3,80}?)"
+    r"\s+((?:I\.\s*)?ĐẠI CƯƠNG(?:\s*I\.)?)"
+)
+
+
+def _promote_inline_titles(text: str) -> tuple[str, int]:
+    """Re-insert '## ' headers for procedure titles mashed inline into body text. Returns the fixed
+    text and the number of promotions (for logging / regression visibility)."""
+    return INLINE_PROC_TITLE_RE.subn(r"\n\n## \1\n\n\2", text)
+
+
+def load_and_clean(filepath: str | Path = DATA_FILE, promote_titles: bool = False) -> str:
+    """Load markdown file, apply unicode fixes, normalize whitespace. With `promote_titles`, also
+    recover '## ' headers lost inline in the body (BYT 2014 procedure doc only)."""
     text = Path(filepath).read_text(encoding="utf-8")
     for wrong, right in UNICODE_FIXES.items():
         text = text.replace(wrong, right)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
+    if promote_titles:
+        text, n = _promote_inline_titles(text)
+        print(f"  [chunker] promoted {n} inline procedure title(s) to '## ' headers")
     return text
 
 
@@ -424,7 +450,7 @@ def validate_chunks(chunks: list[dict]) -> bool:
 
 def main() -> None:
     print(f"Loading {DATA_FILE.name}...")
-    chunks = chunk_procedures(load_and_clean(DATA_FILE))
+    chunks = chunk_procedures(load_and_clean(DATA_FILE, promote_titles=True))
     print(f"  -> {len(chunks)} from BYT 2014 procedures\n")
 
     print(f"Loading {ICU2015_FILE.name}...")

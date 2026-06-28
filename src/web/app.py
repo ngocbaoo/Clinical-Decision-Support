@@ -3,7 +3,10 @@ Patient-scoped web API over the ICU RAG pipeline (FastAPI).
 
 Flow the UI enforces: pick a patient FIRST, then chat scoped to that patient. Every chat
 message carries the patient's full FHIR context (single-turn), so the assistant always
-"understands the situation". The opening assessment is one grounded+verified pipeline call.
+"understands the situation". The opening assessment is a DETERMINISTIC chart summary —
+authoritative score flags + allergies + an OpenFDA drug-safety scan over the patient's current
+medications. No LLM, no citation gate, no fallback: it never refuses and is effectively instant
+(vs the old ~35s pipeline call that fell back whenever the summary cited no guideline chunk).
 
 This module is a pure CONSUMER of the pipeline — it changes nothing in src/rag, src/fhir,
 src/scoring. Run:  uvicorn web.app:app --app-dir src --reload
@@ -11,7 +14,11 @@ src/scoring. Run:  uvicorn web.app:app --app-dir src --reload
 
 import io
 import json
+import logging
+import os
 import sys
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
@@ -26,8 +33,7 @@ from fhir.fhir_client import FHIRClient  # noqa: E402
 from scoring.calculator import calculate_all  # noqa: E402
 from rag.context_builder import summarize_patient  # noqa: E402
 
-ASSESSMENT_QUERY = ("Tóm tắt tình trạng hiện tại của bệnh nhân và nêu các vấn đề an toàn / "
-                    "cần lưu ý quan trọng nhất.")
+_GENDER_VI = {"male": "Nam", "female": "Nữ", "other": "Khác", "unknown": "Không rõ"}
 
 # --- patient catalog (static mock) -------------------------------------------
 _INDEX = json.loads((MOCK_DIR / "index.json").read_text(encoding="utf-8"))
@@ -138,7 +144,71 @@ def _shape_answer(result: dict) -> dict:
     }
 
 
-app = FastAPI(title="ICU RAG — patient-scoped assistant")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("warmup")
+
+
+def warmup_models() -> None:
+    """Eagerly load EVERY heavy model at app boot (not lazily on first request): the RAG pipeline
+    (chat + embedder + Chroma), the cross-encoder reranker, the local NLI verifier, and the ASR
+    transcriber — each warmed with a tiny inference so the first real request pays no cold-start /
+    CUDA-kernel cost. Per-model timing is logged; each stage is guarded so one failure (e.g. GPU OOM
+    on the 4GB card) degrades that model but still boots the app. The previous lazy loads made the
+    first chat block for tens of seconds while a 2.2GB reranker loaded mid-request → 'no response'."""
+    log.info("Warming up models on startup…")
+
+    t = time.perf_counter()
+    try:
+        pipe = get_pipeline()
+        log.info("✓ RAG pipeline (chat + embedder + Chroma) in %.1fs", time.perf_counter() - t)
+    except Exception:
+        log.exception("✗ RAG pipeline FAILED to load — chat/assessment will error")
+        return  # nothing downstream works without the pipeline
+
+    t = time.perf_counter()
+    try:
+        rr = pipe._get_reranker()
+        if rr is not None:
+            rr.rerank("khởi động", [{"text": "khởi động mô hình xếp hạng"}])
+            log.info("✓ cross-encoder reranker in %.1fs", time.perf_counter() - t)
+        else:
+            log.warning("• reranker disabled / model not cached → bi-encoder retrieval only")
+    except Exception:
+        log.exception("✗ reranker FAILED → bi-encoder retrieval only")
+
+    t = time.perf_counter()
+    try:
+        nli = pipe._get_nli()
+        if nli is not None:
+            nli("khởi động", "khởi động")
+            log.info("✓ NLI verifier in %.1fs", time.perf_counter() - t)
+        else:
+            log.info("• NLI verifier not required by current config")
+    except Exception:
+        log.exception("✗ NLI verifier FAILED to load")
+
+    t = time.perf_counter()
+    try:
+        import numpy as np
+        get_transcriber().transcribe(np.zeros(16000, dtype="float32"), 16000)
+        log.info("✓ ASR transcriber in %.1fs", time.perf_counter() - t)
+    except Exception:
+        log.exception("✗ ASR transcriber FAILED to load")
+
+    log.info("Warmup complete — all models resident; first request will be fast.")
+
+
+@asynccontextmanager
+async def lifespan(_app: "FastAPI"):
+    # Skip eager warmup under pytest (offline tests must stay torch-free) or when explicitly
+    # disabled (WARMUP_MODELS=0). Otherwise load everything before the server accepts requests.
+    if "pytest" not in sys.modules and os.getenv("WARMUP_MODELS", "1") != "0":
+        warmup_models()
+    yield
+
+
+app = FastAPI(title="ICU RAG — patient-scoped assistant", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -176,12 +246,69 @@ def get_patient(pid: str):
     return to_profile(ctx, calc)
 
 
+def _normalize_drug_alert(a: dict) -> dict:
+    """Flatten a safety-scan alert into {type, severity, title, detail} for the UI."""
+    t = a.get("type")
+    if t == "allergy":
+        detail = f"Đang dùng thuốc trùng dị ứng đã ghi nhận ({a.get('allergen')})"
+        if a.get("reaction"):
+            detail += f" — phản ứng: {a['reaction']}"
+        return {"type": t, "severity": "danger",
+                "title": f"Dị ứng × thuốc: {a.get('drug')}", "detail": detail}
+    if t == "contraindication":
+        return {"type": t, "severity": "danger",
+                "title": f"Chống chỉ định: {a.get('drug')} ↔ {a.get('condition')}",
+                "detail": (a.get("snippet") or "").strip()[:240]}
+    if t == "interaction":
+        return {"type": t, "severity": "warn",
+                "title": f"Tương tác thuốc: {a.get('drug_a')} ↔ {a.get('drug_b')}",
+                "detail": (a.get("snippet") or "").strip()[:240]}
+    return {"type": t or "alert", "severity": "warn",
+            "title": a.get("drug") or "Cảnh báo an toàn", "detail": ""}
+
+
+def _build_assessment(ctx: dict, calc: dict) -> dict:
+    """Deterministic opening assessment: no LLM. Pulls the authoritative score flags the
+    scoring module already computed, the recorded allergies, and runs the OpenFDA drug-safety
+    scan over the patient's CURRENT medications (allergy-on-med, med↔condition contraindication,
+    med↔med interaction). The OpenFDA scan is best-effort — a network outage degrades to no drug
+    alerts, never blocks or refuses the opener."""
+    profile = to_profile(ctx, calc)
+    meds = [m["name"] for m in profile["medications"] if m.get("name")]
+    drug_alerts: list[dict] = []
+    try:
+        # Lazy import keeps the offline catalog/profile path free of rag.safety/openfda.
+        from rag.safety import (check_allergies, check_contraindications,
+                                 check_drug_interactions)
+        raw = (check_allergies(meds, ctx) + check_contraindications(meds, ctx)
+               + check_drug_interactions(meds, ctx))
+        drug_alerts = [_normalize_drug_alert(a) for a in raw]
+    except Exception as exc:  # OpenFDA outage etc. — degrade, never block the opener
+        print(f"  [assessment safety scan failed] {exc}", file=sys.stderr)
+
+    subtitle = " · ".join(filter(None, [
+        _GENDER_VI.get(profile["gender"], profile["gender"]),
+        f"{profile['age']} tuổi" if profile.get("age") is not None else None,
+        (profile.get("encounter") or {}).get("service_type"),
+    ]))
+    return {
+        "kind": "assessment",
+        "name": profile["name"],
+        "subtitle": subtitle,
+        "score_flags": (calc.get("summary") or {}).get("alerts", []),
+        "allergies": profile["allergies"],
+        "drug_alerts": drug_alerts,
+        "conditions": profile["conditions"],
+        "note": ("Tóm tắt tự động từ hồ sơ bệnh nhân — không phải khuyến nghị điều trị. "
+                 "Đặt câu hỏi bên dưới để nhận tư vấn có trích dẫn guideline."),
+    }
+
+
 @app.post("/api/patients/{pid}/assessment")
 def assessment(pid: str):
     ctx, calc = _ctx_for(pid)
     if pid not in _assessment_cache:  # static-mock cache — see caveat above
-        result = get_pipeline().ask(ASSESSMENT_QUERY, ctx, calc)
-        _assessment_cache[pid] = _shape_answer(result)
+        _assessment_cache[pid] = _build_assessment(ctx, calc)
     return _assessment_cache[pid]
 
 

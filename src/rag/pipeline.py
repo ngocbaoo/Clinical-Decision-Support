@@ -25,7 +25,13 @@ from embedding.or_client import ChatClient, EmbeddingClient, DEFAULT_MODEL  # no
 from embedding.retriever import COLLECTION_NAME, retrieve  # noqa: E402
 from rag.config import (GEN_MODEL, GEN_REASONING_ENABLED, TOP_K,  # noqa: E402
                         VERIFIER_BACKEND, VERIFIER_MODEL, VERIFY_ENABLED,
-                        VERIFY_EVIDENCE_NLI)
+                        VERIFY_EVIDENCE_NLI, COMORBIDITY_RETRIEVAL, RRF_K,
+                        COMORBIDITY_SLOTS, COMORBIDITY_MIN_SCORE,
+                        MAX_COMORBIDITY_QUERIES, RETRIEVE_CANDIDATES,
+                        COMORBIDITY_QUERY_TEMPLATE, RERANK_ENABLED, RERANK_CANDIDATES,
+                        COMORBIDITY_GATE_ENABLED)
+from rag.fusion import comorbidity_fuse, comorbidity_names, comorbidity_queries  # noqa: E402
+from rag.comorbidity_gate import apply_comorbidity_gate  # noqa: E402
 from rag.generator import generate  # noqa: E402
 from rag.logging_utils import log_request  # noqa: E402
 from rag.query_router import route  # noqa: E402
@@ -52,6 +58,30 @@ class RAGPipeline:
         # Local int8 NLI (mDeBERTa-XNLI) for the local_nli/hybrid backends. Lazy-loaded on first
         # use so the torch-free offline path / tests never import optimum-onnxruntime.
         self._nli = None
+        # Cross-encoder reranker (bge-reranker-v2-m3). Lazy-loaded (torch) only when reranking is on.
+        self._reranker = None
+
+    def _get_reranker(self):
+        """Lazy-load the cross-encoder reranker once, only when RERANK_ENABLED. Keeps torch out of
+        the offline path (same contract as _get_nli). Degrades gracefully: if the model isn't in the
+        local cache (or fails to load), reranking is skipped and retrieval falls back to the
+        bi-encoder — never hang a live request on a multi-GB download."""
+        if not RERANK_ENABLED or self._reranker is False:
+            return None
+        if self._reranker is None:
+            from rag.reranker import CrossEncoderReranker, model_is_cached
+            if not model_is_cached():
+                print("  [reranker] model not cached → bi-encoder only "
+                      "(download BAAI/bge-reranker-v2-m3 to enable)", file=sys.stderr)
+                self._reranker = False
+                return None
+            try:
+                self._reranker = CrossEncoderReranker()
+            except Exception as err:  # noqa: BLE001 — load failure must not break retrieval
+                print(f"  [reranker] load failed → bi-encoder only: {err}", file=sys.stderr)
+                self._reranker = False
+                return None
+        return self._reranker
 
     def _get_nli(self):
         """Lazy-load the local NLI model once, only when a backend needs it. Loaded for the
@@ -63,26 +93,59 @@ class RAGPipeline:
             self._nli = LocalNLI()
         return self._nli
 
-    def retrieve_for_intent(self, query: str, intent: str,
-                            n_results: int = TOP_K) -> list[dict]:
-        """Safety-priority retrieval driven by ROUTED intent, not keywords."""
+    def _primary_retrieval(self, query: str, intent: str, cand_n: int) -> list[dict]:
+        """The intent-driven primary list (contraindication-first for safety intents). Pulls a wide
+        bi-encoder pool (RERANK_CANDIDATES when reranking, else `cand_n`), then a cross-encoder
+        reranks it by joint (query, chunk) relevance — fixing the bi-encoder near-ties that let an
+        off-topic chunk win rank-1. Each sub-list is reranked independently so the contra-first
+        safety ordering is preserved by construction."""
+        rr = self._get_reranker()
+        pool_n = RERANK_CANDIDATES if rr is not None else cand_n
+
+        def _rr(lst: list[dict]) -> list[dict]:
+            return rr.rerank(query, lst) if rr is not None and lst else lst
+
         if intent == "contraindication":
             vec = self.embedder.embed_one(query)  # embed once, query twice
             safety = retrieve(query, self.collection, self.embedder,
-                              n_results=n_results, query_embedding=vec,
+                              n_results=pool_n, query_embedding=vec,
                               chunk_type_filter="contraindication", min_score=0.0)
             rest = retrieve(query, self.collection, self.embedder,
-                            n_results=n_results, query_embedding=vec,
-                            min_score=0.0)
+                            n_results=pool_n, query_embedding=vec, min_score=0.0)
             seen, merged = set(), []
-            for c in safety + rest:  # contraindication chunks first
+            for c in _rr(safety) + _rr(rest):  # contraindication chunks first, each reranked
                 key = c["text"][:80]
                 if key not in seen:
                     seen.add(key)
                     merged.append(c)
-            return merged[:n_results]
-        return retrieve(query, self.collection, self.embedder,
-                        n_results=n_results, min_score=0.0)
+            return merged
+        return _rr(retrieve(query, self.collection, self.embedder,
+                            n_results=pool_n, min_score=0.0))
+
+    def retrieve_for_intent(self, query: str, intent: str,
+                            comorbidities: list[str] | None = None,
+                            n_results: int = TOP_K) -> list[dict]:
+        """Safety-priority retrieval driven by ROUTED intent, fused with comorbidity-aware
+        auxiliary retrieval (RRF) so the patient's background pathology is represented in context.
+
+        Without comorbidities (or with the flag off) this returns exactly the old top-K primary
+        list. With comorbidities it runs one auxiliary query per comorbidity and weighted-RRF-fuses
+        them under the primary list (primary weight 1.0 > aux RRF_AUX_WEIGHT), keeping the total at
+        n_results — comorbidity chunks displace only weak primary-tail chunks, never the primary
+        top hits. See src/rag/config.py / fusion.py and the guardrail eval."""
+        cand_n = max(n_results, RETRIEVE_CANDIDATES)
+        primary = self._primary_retrieval(query, intent, cand_n)
+        if not (COMORBIDITY_RETRIEVAL and comorbidities):
+            return primary[:n_results]
+
+        aux_lists = [
+            retrieve(cq, self.collection, self.embedder, n_results=cand_n, min_score=0.0)
+            for cq in comorbidity_queries(comorbidities, COMORBIDITY_QUERY_TEMPLATE,
+                                          MAX_COMORBIDITY_QUERIES)
+        ]
+        return comorbidity_fuse(primary, aux_lists, n_results=n_results,
+                                comorbidity_slots=COMORBIDITY_SLOTS, k=RRF_K,
+                                min_score=COMORBIDITY_MIN_SCORE)
 
     def ask(self, query: str, patient_context: dict | None = None,
             calc: dict | None = None) -> dict:
@@ -98,12 +161,17 @@ class RAGPipeline:
         # depend only on the routed output and are independent of each other — run them concurrently
         # so the OpenFDA tail hides under retrieval instead of stacking after it. Both are I/O-bound,
         # so threads (GIL released on network) give the win without process overhead.
+        # Comorbidity-aware retrieval needs the patient's active conditions (RRF-fused as
+        # auxiliary queries). Derived generically from context; [] when no patient -> plain retrieval.
+        comorbidities = comorbidity_names(patient_context)
+
         def _retrieve() -> tuple[list, float]:
             s = time.perf_counter()
             ch: list = []
             if routing["intent"] != "off_topic":
                 try:
-                    ch = self.retrieve_for_intent(query, routing["intent"])
+                    ch = self.retrieve_for_intent(query, routing["intent"],
+                                                  comorbidities=comorbidities)
                 except Exception as err:  # API outage -> no chunks -> generator falls back
                     print(f"  [retrieval failed] {err}", file=sys.stderr)
             return ch, round(time.perf_counter() - s, 2)
@@ -129,6 +197,13 @@ class RAGPipeline:
                             backend=self.backend if self.verify else "llm",
                             nli=self._get_nli())
         timings["generation"] = round(time.perf_counter() - t, 2)
+
+        # Deterministic comorbidity-conflict enforcement gate (Risk #1 backstop): catch a dangerous
+        # recommendation × the patient's comorbidity that grounded generation can't (the
+        # fluid-bolus-in-cirrhosis class). Attaches a mandatory warning; never deletes the answer.
+        if COMORBIDITY_GATE_ENABLED:
+            response = apply_comorbidity_gate(response, patient_context or {})
+
         # Real end-to-end wall-clock (not a sum of stages — retrieval/safety now overlap).
         timings["total"] = round(time.perf_counter() - t0, 2)
         # verify is a sub-stage of generation; reported separately, not double-summed.

@@ -14,8 +14,20 @@ export const listPatients = () => fetch(`${BASE}/api/patients`).then(json);
 export const getProfile = (pid) =>
   fetch(`${BASE}/api/patients/${pid}`).then(json);
 
-export const getAssessment = (pid) =>
-  fetch(`${BASE}/api/patients/${pid}/assessment`, { method: "POST" }).then(json);
+// The opening assessment runs the full RAG pipeline (~tens of seconds cold). React StrictMode
+// double-invokes effects in dev, and re-mounts re-fire them — so we dedupe per patient: concurrent
+// callers share ONE in-flight request, and a settled result is cached. This stops two heavy
+// pipeline runs from racing on a single-GPU backend (which was wedging it → "Failed to fetch").
+const _assessment = new Map(); // pid -> Promise
+export const getAssessment = (pid) => {
+  if (!_assessment.has(pid)) {
+    const p = fetch(`${BASE}/api/patients/${pid}/assessment`, { method: "POST" })
+      .then(json)
+      .catch((e) => { _assessment.delete(pid); throw e; }); // let a failed run be retried
+    _assessment.set(pid, p);
+  }
+  return _assessment.get(pid);
+};
 
 export const sendChat = (pid, query) =>
   fetch(`${BASE}/api/patients/${pid}/chat`, {
