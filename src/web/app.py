@@ -1,16 +1,6 @@
-"""
-Patient-scoped web API over the ICU RAG pipeline (FastAPI).
+"""Patient-scoped web API over the ICU RAG pipeline (FastAPI).
 
-Flow the UI enforces: pick a patient FIRST, then chat scoped to that patient. Every chat
-message carries the patient's full FHIR context (single-turn), so the assistant always
-"understands the situation". The opening assessment is a DETERMINISTIC chart summary —
-authoritative score flags + allergies + an OpenFDA drug-safety scan over the patient's current
-medications. No LLM, no citation gate, no fallback: it never refuses and is effectively instant
-(vs the old ~35s pipeline call that fell back whenever the summary cited no guideline chunk).
-
-This module is a pure CONSUMER of the pipeline — it changes nothing in src/rag, src/fhir,
-src/scoring. Run:  uvicorn web.app:app --app-dir src --reload
-"""
+Run:  uvicorn web.app:app --app-dir src --reload"""
 
 import io
 import json
@@ -21,7 +11,7 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -35,22 +25,15 @@ from rag.context_builder import summarize_patient  # noqa: E402
 
 _GENDER_VI = {"male": "Nam", "female": "Nữ", "other": "Khác", "unknown": "Không rõ"}
 
-# --- patient catalog (static mock) -------------------------------------------
 _INDEX = json.loads((MOCK_DIR / "index.json").read_text(encoding="utf-8"))
 _PATIENTS = _INDEX["patients"]
 _ID_TO_FILE = {p["id"]: p["file"] for p in _PATIENTS}
 
-# --- caches ------------------------------------------------------------------
-# ⚠️ These caches are valid ONLY because the mock FHIR bundles are STATIC. Against a LIVE
-# FHIR server, ICU ctx/calc/assessment change by the minute, so caching would silently serve
-# stale clinical data — a safety bug. On live FHIR: remove these, or add a short TTL +
-# invalidate on new data. Do not let this demo shortcut become a real-world safety bug.
+# Caches valid ONLY because the mock FHIR bundles are STATIC; on a live FHIR server add a TTL +
+# invalidation or they serve stale clinical data.
 _ctx_cache: dict[str, tuple[dict, dict]] = {}
 _assessment_cache: dict[str, dict] = {}
 
-# Pipeline is built lazily on first LLM use (chat/assessment): the catalog + profile
-# endpoints are fully offline (local FHIR file + SQLite), so they — and the offline tests —
-# never need OPEN_ROUTER_KEY or the Chroma store.
 _pipeline = None
 
 
@@ -58,14 +41,10 @@ def get_pipeline():
     global _pipeline
     if _pipeline is None:
         from rag.pipeline import RAGPipeline
-        _pipeline = RAGPipeline()  # config defaults: flash + reasoning-off, verifier on
+        _pipeline = RAGPipeline()
     return _pipeline
 
 
-# ASR is loaded just as lazily as the pipeline: the CTranslate2 model and faster-whisper import
-# never touch the offline catalog/profile path (or the offline tests). It is built on the first
-# /api/asr/transcribe call. The serve-time runtime is torch-free (ctranslate2 only); the int8 model
-# loads in ~2s vs the old ~8s transformers cold-start (docs/ASR_CT2_MIGRATION.md).
 _transcriber = None
 
 
@@ -150,12 +129,8 @@ log = logging.getLogger("warmup")
 
 
 def warmup_models() -> None:
-    """Eagerly load EVERY heavy model at app boot (not lazily on first request): the RAG pipeline
-    (chat + embedder + Chroma), the cross-encoder reranker, the local NLI verifier, and the ASR
-    transcriber — each warmed with a tiny inference so the first real request pays no cold-start /
-    CUDA-kernel cost. Per-model timing is logged; each stage is guarded so one failure (e.g. GPU OOM
-    on the 4GB card) degrades that model but still boots the app. The previous lazy loads made the
-    first chat block for tens of seconds while a 2.2GB reranker loaded mid-request → 'no response'."""
+    """Eagerly load every heavy model at app boot (pipeline, reranker, NLI verifier, ASR), each
+    warmed with a tiny inference and guarded so one failure still boots the app."""
     log.info("Warming up models on startup…")
 
     t = time.perf_counter()
@@ -164,7 +139,7 @@ def warmup_models() -> None:
         log.info("✓ RAG pipeline (chat + embedder + Chroma) in %.1fs", time.perf_counter() - t)
     except Exception:
         log.exception("✗ RAG pipeline FAILED to load — chat/assessment will error")
-        return  # nothing downstream works without the pipeline
+        return
 
     t = time.perf_counter()
     try:
@@ -201,8 +176,6 @@ def warmup_models() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: "FastAPI"):
-    # Skip eager warmup under pytest (offline tests must stay torch-free) or when explicitly
-    # disabled (WARMUP_MODELS=0). Otherwise load everything before the server accepts requests.
     if "pytest" not in sys.modules and os.getenv("WARMUP_MODELS", "1") != "0":
         warmup_models()
     yield
@@ -220,7 +193,7 @@ class ChatIn(BaseModel):
     query: str
 
 
-_demographics_cache: dict[str, dict] = {}  # static-mock only — see caching caveat above
+_demographics_cache: dict[str, dict] = {}
 
 
 def _demographics(pid: str, file: str) -> dict:
@@ -268,22 +241,18 @@ def _normalize_drug_alert(a: dict) -> dict:
 
 
 def _build_assessment(ctx: dict, calc: dict) -> dict:
-    """Deterministic opening assessment: no LLM. Pulls the authoritative score flags the
-    scoring module already computed, the recorded allergies, and runs the OpenFDA drug-safety
-    scan over the patient's CURRENT medications (allergy-on-med, med↔condition contraindication,
-    med↔med interaction). The OpenFDA scan is best-effort — a network outage degrades to no drug
-    alerts, never blocks or refuses the opener."""
+    """Deterministic opening assessment (no LLM): score flags + allergies + best-effort OpenFDA
+    drug-safety scan over current medications; a scan failure degrades to no drug alerts."""
     profile = to_profile(ctx, calc)
     meds = [m["name"] for m in profile["medications"] if m.get("name")]
     drug_alerts: list[dict] = []
     try:
-        # Lazy import keeps the offline catalog/profile path free of rag.safety/openfda.
         from rag.safety import (check_allergies, check_contraindications,
                                  check_drug_interactions)
         raw = (check_allergies(meds, ctx) + check_contraindications(meds, ctx)
                + check_drug_interactions(meds, ctx))
         drug_alerts = [_normalize_drug_alert(a) for a in raw]
-    except Exception as exc:  # OpenFDA outage etc. — degrade, never block the opener
+    except Exception as exc:  # noqa: BLE001
         print(f"  [assessment safety scan failed] {exc}", file=sys.stderr)
 
     subtitle = " · ".join(filter(None, [
@@ -307,7 +276,7 @@ def _build_assessment(ctx: dict, calc: dict) -> dict:
 @app.post("/api/patients/{pid}/assessment")
 def assessment(pid: str):
     ctx, calc = _ctx_for(pid)
-    if pid not in _assessment_cache:  # static-mock cache — see caveat above
+    if pid not in _assessment_cache:
         _assessment_cache[pid] = _build_assessment(ctx, calc)
     return _assessment_cache[pid]
 
@@ -323,11 +292,9 @@ def chat(pid: str, body: ChatIn):
 
 @app.post("/api/asr/transcribe")
 async def asr_transcribe(request: Request):
-    """Push-to-talk → transcript. The client posts a raw mono WAV blob (Content-Type audio/wav);
-    we read it with soundfile (no python-multipart / ffmpeg needed), transcribe with the drug-name
-    initial_prompt bias, and run the SUGGEST-only drug matcher. Returns {text, latency_s,
-    suggestions} — the UI puts `text` in an EDITABLE box and shows suggestions as hints. It NEVER
-    auto-sends and NEVER rewrites the transcript: the doctor confirms (F-ASR-04/05, Risk #1)."""
+    """Push-to-talk → transcript: read WAV via soundfile, transcribe with the drug-name
+    initial_prompt bias, run the SUGGEST-only matcher. Returns {text, latency_s, suggestions};
+    never auto-sends or rewrites the transcript — the doctor confirms (F-ASR-04/05, Risk #1)."""
     import numpy as np
     import soundfile as sf
 
@@ -339,9 +306,9 @@ async def asr_transcribe(request: Request):
         raise HTTPException(status_code=400, detail="empty audio")
     try:
         audio, sr = sf.read(io.BytesIO(raw), dtype="float32")
-    except Exception as exc:  # unreadable / unsupported container
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"unreadable audio: {exc}")
-    if getattr(audio, "ndim", 1) > 1:  # downmix stereo → mono
+    if getattr(audio, "ndim", 1) > 1:
         audio = audio.mean(axis=1)
     if audio.size == 0:
         raise HTTPException(status_code=400, detail="silent / zero-length audio")
@@ -351,7 +318,7 @@ async def asr_transcribe(request: Request):
             "suggestions": suggest_drugs(result["text"])}
 
 
-# Serve the built SPA (prod = one server). Mounted last so /api/* wins. Dev uses Vite instead.
+# Mounted last so /api/* wins.
 _DIST = ROOT / "frontend" / "dist"
 if _DIST.exists():
     app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="spa")

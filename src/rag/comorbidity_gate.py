@@ -1,34 +1,14 @@
-"""
-Deterministic comorbidity-conflict enforcement gate (Risk #1 backstop).
-
-The retrieval (#1) + generator-reconcile (#3) levers make the answer MENTION a comorbidity, but they
-can only ground a caution on text that was retrieved — so a dangerous recommendation can still slip
-through grounded on a generic protocol (the "bù dịch 1-2L" sepsis bolus stays even for a cirrhotic
-patient, because the corpus has no "cautious fluids in cirrhosis" sentence to cite). This gate is the
-deterministic safety net: a small, high-confidence rules table of (dangerous recommendation ×
-conflicting comorbidity). When the FINAL answer contains a flagged recommendation AND the patient has
-the conflicting comorbidity, we attach a mandatory warning. It does NOT delete the answer (the
-needed care — e.g. sepsis management — stays); it forces the modification the doctor must make. The
-DISCLAIMER ("Cần bác sĩ xác nhận…") still applies.
-
-Pure text/Context matching — no LLM, no torch, offline-testable. Curated CONSERVATIVELY: a missed
-conflict is the status quo, but a false alarm erodes trust, so only clinically unambiguous pairs.
-"""
+"""Deterministic comorbidity-conflict enforcement gate (Risk #1 backstop)."""
 
 import unicodedata
 
 
 def _norm(s: str) -> str:
-    """Lowercase, đ→d, strip diacritics — so 'Suy gan' / 'suy gan' / 'SUY GAN' all match, robust to
-    the answer's formatting."""
     s = (s or "").lower().replace("đ", "d")
     s = unicodedata.normalize("NFKD", s)
     return "".join(c for c in s if not unicodedata.combining(c))
 
 
-# Each rule: a flagged recommendation (any of `rec`) that is unsafe for a patient carrying any of
-# `cond`. `message` is the mandatory warning ({cond} = the patient's matched condition name).
-# Keywords are written with diacritics for readability; matched diacritic-insensitively.
 RULES = [
     {
         "id": "aggressive_fluids",
@@ -70,7 +50,6 @@ def _patient_conditions(patient_context: dict) -> list[str]:
 
 
 def check_comorbidity_conflicts(answer: str, patient_context: dict) -> list[dict]:
-    """Return one conflict per fired rule: {id, severity, comorbidity, message}. Deterministic."""
     na = _norm(answer)
     if not na:
         return []
@@ -88,9 +67,6 @@ def check_comorbidity_conflicts(answer: str, patient_context: dict) -> list[dict
 
 
 def apply_comorbidity_gate(response: dict, patient_context: dict) -> dict:
-    """If the (non-fallback) answer carries a flagged recommendation conflicting with the patient's
-    comorbidity, prepend a mandatory warning banner and raise alerts. Returns a NEW dict; a no-op
-    when there are no conflicts or the response is a safety fallback."""
     if response.get("fallback"):
         return response
     conflicts = check_comorbidity_conflicts(response.get("answer", ""), patient_context)

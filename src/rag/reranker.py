@@ -1,49 +1,30 @@
-"""
-Cross-encoder reranker — second-stage retrieval precision.
+"""Cross-encoder reranker (bge-reranker-v2-m3) — second-stage retrieval precision.
 
-The bi-encoder (embedding + Chroma ANN) ranks by cosine of two INDEPENDENTLY embedded vectors:
-recall-friendly but weak on precision. For a vague query ("sốt cao cần làm gì tiếp theo") every
-candidate clusters near the fallback threshold (~0.40) and an off-topic chunk can win rank-1 — e.g.
-the mislabeled antivenom adverse-reaction section that poisoned the pt-007 answer (corticoid /
-diphenhydramin / paracetamol-for-fever). A cross-encoder reads the (query, chunk) pair JOINTLY and
-emits a single relevance logit, resolving exactly that near-tie. The pipeline retrieves a larger
-bi-encoder pool, reranks it here, and keeps the top-K.
-
-Model: BAAI/bge-reranker-v2-m3 (cross-lingual, strong on Vietnamese), a sequence-classification head
-→ one relevance score. fp16 on CUDA, fp32 on CPU. Torch is ISOLATED to this module and it is
-lazy-imported only in the live pipeline, so the offline catalog/scoring/test path stays torch-free —
-the same contract as rag/nli_local.py and asr/*. `order_by_rerank` is a pure helper (no torch) so the
-ordering logic is unit-testable offline.
-"""
+Torch is isolated to this module and lazy-imported only in the live pipeline, so the offline path
+stays torch-free. `order_by_rerank` is a pure helper (no torch), unit-testable offline."""
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from rag.config import RERANK_MODEL, RERANK_MAX_LENGTH, RERANK_BATCH  # noqa: E402
 
 
 def model_is_cached(model_id: str = RERANK_MODEL) -> bool:
-    """True if the reranker weights are already in the local HF cache. Network-free and torch-free,
-    so the pipeline can fast-skip reranking (→ bi-encoder only) when the model hasn't been downloaded
-    yet, instead of hanging on a multi-GB fetch during the first live request."""
+    """True if the reranker weights are already in the local HF cache. Network-free and torch-free."""
     try:
         from huggingface_hub import try_to_load_from_cache
         for fn in ("model.safetensors", "pytorch_model.bin", "model.onnx"):
             if isinstance(try_to_load_from_cache(model_id, fn), str):
                 return True
-    except Exception:  # noqa: BLE001 — any cache/hub error -> treat as unavailable
+    except Exception:  # noqa: BLE001
         return False
     return False
 
 
 def order_by_rerank(chunks: list[dict], scores: list[float], *,
                     top_k: int | None = None) -> list[dict]:
-    """Pure: return chunks sorted by `scores` (desc), each annotated with 'rerank_score'.
-
-    Stable — equal scores keep their original (bi-encoder) order. Input dicts are not mutated.
-    Torch-free, so the wiring is testable offline with injected scores.
-    """
+    """Pure, stable: return chunks sorted by `scores` (desc), each annotated 'rerank_score'."""
     order = sorted(range(len(chunks)), key=lambda i: scores[i], reverse=True)
     out = [{**chunks[i], "rerank_score": float(scores[i])} for i in order]
     return out[:top_k] if top_k is not None else out
@@ -67,7 +48,7 @@ class CrossEncoderReranker:
         self.batch_size = batch_size
 
     def scores(self, query: str, docs: list[str]) -> list[float]:
-        """Relevance logit per doc vs query (higher = more relevant). Batched to bound GPU memory."""
+        """Relevance logit per doc vs query (higher = more relevant). Batched."""
         if not docs:
             return []
         torch = self._torch
