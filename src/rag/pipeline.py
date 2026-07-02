@@ -136,7 +136,8 @@ class RAGPipeline:
         def _retrieve() -> tuple[list, float]:
             s = time.perf_counter()
             ch: list = []
-            if routing["intent"] != "off_topic":
+            # "summary" answers from patient data only — no guideline retrieval needed.
+            if routing["intent"] not in ("off_topic", "summary"):
                 try:
                     ch = self.retrieve_for_intent(query, routing["intent"],
                                                   comorbidities=comorbidities)

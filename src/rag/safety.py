@@ -19,7 +19,7 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 import re  # noqa: E402
 from rag.openfda import (find_mention, get_contraindication_text,  # noqa: E402
-                         get_interaction_text)
+                         get_interaction_text, to_fda_generic)
 
 # ICD-description filler words: too generic to be a reliable contraindication
 # trigger, so we drop them when extracting condition terms to match.
@@ -120,7 +120,10 @@ def check_drug_interactions(drugs: list[str], patient_context: dict) -> list[dic
             pair = frozenset((_norm(drug), _norm(other)))
             if len(pair) < 2 or pair in seen_pairs:
                 continue
-            snippet = find_mention(text, other)
+            # The other drug appears in the (US) label text under its FDA generic
+            # name, so search for that spelling (paracetamol -> acetaminophen).
+            snippet = (find_mention(text, other)
+                       or find_mention(text, to_fda_generic(other)))
             if snippet:
                 seen_pairs.add(pair)
                 source = "thuốc kê đơn" if other in meds else "câu hỏi"

@@ -116,6 +116,16 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
     if intent == "off_topic":
         return _response(OFF_TOPIC_TEXT, [], [], alerts, True, "off_topic", None)
 
+    # Patient-status / summary questions are answered from the patient's own data
+    # (vitals, diagnoses, meds, pre-computed scores) — there is no guideline to ground
+    # them in, so they bypass the retrieval threshold and citation gate (like scoring).
+    # The readout is built deterministically from patient_context here rather than by the
+    # LLM, so it is 100% faithful to the record and needs no verifier.
+    if intent == "summary":
+        summary = summarize_patient(patient_context, calc)
+        answer = f"📋 Tổng quan bệnh nhân:\n{summary}"
+        return _response(answer, [], [], alerts, False, None, None)
+
     # Scoring questions are grounded in calculate_all() values (code-verified),
     # not guideline chunks — exempt from the retrieval threshold and citation gate.
     is_scoring = intent == "scoring"
@@ -171,10 +181,10 @@ def generate(query: str, intent: str, chunks: list[dict], patient_context: dict,
     if run_verify:
         _t = time.perf_counter()
         result = verify_answer(claims, chunks, summary, intent, backend=backend,
-                               verifier_chat=verifier_chat, nli=nli)
+                               verifier_chat=verifier_chat, nli=nli, alerts=alerts)
         verify_meta = {k: result.get(k) for k in
                        ("status", "branch", "unsupported_ratio", "contradiction_count",
-                        "is_ordered_procedure", "fallback_reason")}
+                        "is_ordered_procedure", "fallback_reason", "hedged_count")}
         verify_meta["elapsed_s"] = round(time.perf_counter() - _t, 2)
         verify_meta["backend"] = backend
         # Per-claim audit trail (text/citation/verdict/safety from decide(), joined with the

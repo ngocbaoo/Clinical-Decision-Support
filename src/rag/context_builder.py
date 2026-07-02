@@ -35,9 +35,11 @@ def summarize_patient(ctx: dict, calc: dict) -> str:
 
     conds = ctx.get("conditions", [])
     if conds:
-        items = "; ".join(
-            (c.get("name_vi") or c.get("display") or c.get("icd10_code", "?"))
-            for c in conds[:6])
+        def _cond(c: dict) -> str:
+            name = c.get("name_vi") or c.get("display") or c.get("icd10_code", "?")
+            sev = (c.get("severity") or "").strip()
+            return f"{name} (mức độ: {sev})" if sev else name
+        items = "; ".join(_cond(c) for c in conds[:6])
         lines.append(f"Chẩn đoán: {items}")
 
     obs = ctx.get("observations", {})

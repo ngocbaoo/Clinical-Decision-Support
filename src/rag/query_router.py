@@ -19,13 +19,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # src/ on sys.path
 from embedding.or_client import ChatClient  # noqa: E402
 from prompts import load_prompt  # noqa: E402
 
-INTENTS = ("procedure", "contraindication", "dosing", "scoring", "general", "off_topic")
+INTENTS = ("procedure", "contraindication", "dosing", "scoring", "summary",
+           "general", "off_topic")
 
 # Keywords for the no-LLM fallback path (mirrors retriever.SAFETY_KEYWORDS).
 _SAFETY_KW = ("chống chỉ định", "không được dùng", "không nên", "không được",
               "contraindication", "nguy hiểm", "tránh dùng", "có được", "được không")
 _DOSING_KW = ("liều", "dose", "dosing", "mg/kg", "điều chỉnh liều", "titrate")
 _SCORING_KW = ("news2", "qsofa", "sofa", "egfr", "map", "điểm", "score")
+# Patient-status / overview questions answered from the patient's own data.
+_SUMMARY_KW = ("tình trạng", "tình hình", "tổng quan", "tổng quát", "tóm tắt",
+               "hiện trạng", "diễn biến", "thông tin bệnh nhân", "bệnh nhân thế nào",
+               "bệnh nhân ra sao", "ra sao", "thế nào rồi")
 
 _ROUTER_PROMPT = load_prompt("router")
 
@@ -51,6 +56,8 @@ def keyword_route(query: str) -> dict:
         intent = "dosing"
     elif any(kw in q for kw in _SCORING_KW):
         intent = "scoring"
+    elif any(kw in q for kw in _SUMMARY_KW):
+        intent = "summary"
     else:
         intent = "general"
     return {"intent": intent, "drugs": [], "procedures": [], "via": "keyword"}

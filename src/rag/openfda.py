@@ -91,6 +91,39 @@ def _norm(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Mn").strip()
 
 
+# British/INN/locally-used drug spellings -> US FDA generic names, so OpenFDA's
+# US-indexed labels (keyed on `openfda.generic_name`) actually resolve. Without
+# this, "paracetamol" returns 0 results (FDA indexes it as "acetaminophen") and
+# the whole contraindication/interaction screen silently no-ops. Keys and values
+# are _norm()-folded (lowercase, no diacritics); unknown drugs fall through
+# unchanged. Extend freely — pure data, no network.
+_FDA_GENERIC_ALIASES = {
+    "paracetamol": "acetaminophen",
+    "adrenaline": "epinephrine",
+    "adrenalin": "epinephrine",
+    "noradrenaline": "norepinephrine",
+    "noradrenalin": "norepinephrine",
+    "salbutamol": "albuterol",
+    "frusemide": "furosemide",
+    "lignocaine": "lidocaine",
+    "pethidine": "meperidine",
+    "rifampicin": "rifampin",
+    "thiopentone": "thiopental",
+    "phenobarbitone": "phenobarbital",
+    "isoprenaline": "isoproterenol",
+    "glyceryl trinitrate": "nitroglycerin",
+    "amphotericin": "amphotericin b",
+    "cotrimoxazole": "sulfamethoxazole and trimethoprim",
+    "co-trimoxazole": "sulfamethoxazole and trimethoprim",
+}
+
+
+def to_fda_generic(drug: str) -> str:
+    """Map a drug name to its US FDA generic spelling for OpenFDA lookup/matching
+    (_norm-folded). A no-op for names already in US form or unknown."""
+    return _FDA_GENERIC_ALIASES.get(_norm(drug), _norm(drug))
+
+
 def _fetch(url: str) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "vsf-rag/1.0"})
     with urllib.request.urlopen(req, timeout=_TIMEOUT_S) as resp:
@@ -106,7 +139,7 @@ def _get_label_sections(drug: str, fields: tuple[str, ...],
     first, then brand name. Any error (HTTP 404 for unknown drug, timeout,
     rate-limit) yields [] and is cached so we don't hammer the API.
     """
-    key = _norm(drug)
+    key = to_fda_generic(drug)  # paracetamol -> acetaminophen, etc.
     if not key:
         return []
     if key in cache:

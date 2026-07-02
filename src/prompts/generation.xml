@@ -17,6 +17,7 @@ Quy tắc bắt buộc:
 5. Điểm số lâm sàng (NEWS2/qSOFA/SOFA/eGFR/MAP) đã được tính sẵn — dùng đúng giá trị.
 6. Toàn bộ trả lời tối đa ~120 từ, bác sĩ đọc được trong 10 giây.
 7. ĐỐI CHIẾU BỆNH NỀN: bệnh nhân có thể có bệnh nền (xem phần "Chẩn đoán" trong DỮ LIỆU BỆNH NHÂN — vd suy gan, suy thận, suy tim, thai kỳ). Nếu một khuyến cáo bạn đưa ra mà TÀI LIỆU (kể cả tài liệu về chính bệnh nền đó) có nêu lưu ý / điều chỉnh liều / thận trọng / chống chỉ định cho bệnh nền hiện có của bệnh nhân, BẮT BUỘC thêm một câu nêu rõ lưu ý đó, kèm evidence trích nguyên văn từ tài liệu tương ứng. TUYỆT ĐỐI không tự bịa lưu ý không có trong tài liệu — nếu tài liệu không nói gì về bệnh nền đó thì không thêm.
+8. CÁ THỂ HÓA THEO MỨC ĐỘ NẶNG: BẮT BUỘC đọc mức độ nặng của bệnh nhân (trường "mức độ" trong Chẩn đoán, các Chỉ số sống, Điểm số đã tính, và CẢNH BÁO) rồi CHỌN và ĐIỀU CHỈNH khuyến cáo từ TÀI LIỆU cho đúng mức độ đó — KHÔNG đưa lời khuyên chung chung như nhau cho mọi mức độ. Khi TÀI LIỆU phân tầng xử trí theo mức độ (nhẹ/vừa/nặng, theo ngưỡng điểm số/chỉ số), phải áp đúng nhánh ứng với dữ liệu bệnh nhân và nêu rõ căn cứ (vd "do SpO₂=91%/COPD mức độ vừa → ..."). Mỗi câu cá thể hóa vẫn phải có evidence trích nguyên văn từ tài liệu cho phần khuyến cáo; con số mức độ/chỉ số lấy từ DỮ LIỆU BỆNH NHÂN thì để citation null. Nếu TÀI LIỆU không phân tầng theo mức độ thì bám sát tài liệu, không tự bịa ngưỡng.
 
 Chỉ trả về JSON:
 {"sentences": [{"text": "...", "evidence": "trích nguyên văn", "citation": 1}], "confidence": 0.0-1.0, "insufficient": false}

@@ -108,6 +108,29 @@ def _looks_ordered(claims: list[dict]) -> bool:
     return bool(re.search(r"\b[1-9]\)", blob)) or bool(re.search(r"\b[1-9]\.", blob))
 
 
+# Hedge prefix for an unverifiable patient-derived safety caution: kept (not silently
+# dropped, not allowed to fallback the whole answer) but stripped of false certainty.
+HEDGE_PREFIX = ("⚠️ Lưu ý (dựa trên dữ liệu bệnh nhân, chưa đối chiếu được "
+                "guideline — cần dược sĩ xác nhận): ")
+
+
+def _alert_confirms(text: str, alerts: list[dict] | None) -> bool:
+    """True if a deterministic safety gate already produced an alert matching this claim.
+
+    The alerts come from check_allergies / check_contraindications / check_drug_interactions —
+    code/FDA-derived facts about THIS patient, not LLM assertions. A citation=null safety claim
+    that restates such an alert is trustworthy by virtue of the gate, not the model. Match = the
+    claim text mentions one of the alert's key terms (drug / allergen / condition / paired drug).
+    """
+    folded = _fold(text)
+    for a in alerts or []:
+        for key in ("drug", "allergen", "condition", "matched", "drug_a", "drug_b"):
+            term = _fold(a.get(key) or "")
+            if len(term) >= 4 and term in folded:
+                return True
+    return False
+
+
 # --- backends ----------------------------------------------------------------
 # Prompt lives in src/prompts/verifier.xml.
 _LLM_PROMPT = load_prompt("verifier")
@@ -164,30 +187,41 @@ def decide(claims: list[dict], verdicts: list[dict], intent: str) -> dict:
     base = {"unsupported_ratio": unsupported_ratio, "contradiction_count": contradicted,
             "is_ordered_procedure": ordered, "verdicts": enriched}
 
+    unsupported_safety = [c for c in enriched if c["safety"] and c["verdict"] != "supported"]
+    base["hedged_count"] = 0
+
     # 1. any contradiction -> trust broken, drop the whole answer
     if contradicted:
         return {**base, "action": "fallback", "branch": "contradicted",
                 "fallback_reason": "verifier_contradicted", "kept_claims": []}
-    # 2. any effective-safety claim not supported -> fallback (don't silently drop safety)
-    if any(c["safety"] and c["verdict"] != "supported" for c in enriched):
+    # 2. unsupported safety claim that CITES a guideline chunk -> fail-CLOSED: a misquoted/
+    #    fabricated guideline safety claim is the dangerous case, drop the whole answer.
+    #    (Patient-derived safety claims (citation=null) that a deterministic alert confirms were
+    #    already marked supported upstream; the rest are hedged in step 4, not killed — killing a
+    #    real patient-grounded caution suppresses a valid warning, which is LESS safe.)
+    if any(isinstance(c["citation"], int) for c in unsupported_safety):
         return {**base, "action": "fallback", "branch": "safety",
                 "fallback_reason": "verifier_unsupported_safety", "kept_claims": []}
     # 3. sequential procedure with any non-supported step -> can't excise a step
     if ordered and any(c["verdict"] != "supported" for c in enriched):
         return {**base, "action": "fallback", "branch": "integrity",
                 "fallback_reason": "verifier_integrity_break", "kept_claims": []}
-    # 4. ordinary surplus -> strip neutral, keep supported
+    # 4. keep supported claims; hedge (don't drop) patient-derived unverified safety cautions
     kept = [c for c in enriched if c["verdict"] == "supported"]
-    if not kept:
+    hedged = [{**c, "text": HEDGE_PREFIX + c["text"]} for c in unsupported_safety]
+    base["hedged_count"] = len(hedged)
+    all_kept = kept + hedged
+    if not all_kept:
         return {**base, "action": "fallback", "branch": "empty",
                 "fallback_reason": "verifier_unsupported", "kept_claims": []}
-    return {**base, "action": "keep", "branch": "strip", "fallback_reason": None,
-            "kept_claims": kept}
+    branch = "hedge" if hedged else "strip"
+    return {**base, "action": "keep", "branch": branch, "fallback_reason": None,
+            "kept_claims": all_kept}
 
 
 def verify_answer(claims: list[dict], chunks: list[dict], patient_summary: str,
                   intent: str, *, backend: str = "llm", verifier_chat=None,
-                  nli=None) -> dict:
+                  nli=None, alerts: list[dict] | None = None) -> dict:
     """Classify claims (with the $0 evidence fast-path) then apply decide().
 
     Returns the decide() dict plus "status" ("ok" | "error"). On any backend failure
@@ -227,6 +261,12 @@ def verify_answer(claims: list[dict], chunks: list[dict], patient_summary: str,
                     fast[i] = {"verdict": "supported", "is_safety": False}
             else:
                 fast[i] = {"verdict": "supported", "is_safety": False}  # Lever-1-only fallback
+        elif _alert_confirms(c.get("text", ""), alerts):
+            # Lever 3 — citation=null claim restating a deterministic safety alert (allergy /
+            # contraindication / interaction). The alert is code/FDA-derived for THIS patient, so
+            # the claim is trustworthy WITHOUT the lenient backend (which marks it neutral because
+            # the terse patient_summary states the fact but not the recommendation).
+            fast[i] = {"verdict": "supported", "is_safety": True}
         else:
             pending_idx.append(i)
 

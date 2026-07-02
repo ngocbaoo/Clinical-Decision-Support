@@ -7,6 +7,7 @@ Bạn là bộ phân loại câu hỏi cho trợ lý lâm sàng ICU. Phân loạ
 - "contraindication": hỏi chống chỉ định, khi nào KHÔNG được làm / không nên dùng, rủi ro an toàn
 - "dosing": hỏi liều thuốc / điều chỉnh liều
 - "scoring": hỏi điểm số lâm sàng (NEWS2, qSOFA, SOFA, eGFR, MAP) của bệnh nhân
+- "summary": hỏi tình trạng / tổng quan / tóm tắt thông tin của CHÍNH bệnh nhân (sinh hiệu, chẩn đoán, thuốc đang dùng) — không hỏi guideline
 - "general": câu hỏi y khoa ICU khác
 - "off_topic": KHÔNG liên quan y khoa
 
@@ -22,6 +23,8 @@ Câu hỏi: "Các bước tiến hành lọc máu liên tục?"
 {"intent": "procedure", "drugs": [], "procedures": ["lọc máu liên tục"]}
 Câu hỏi: "NEWS2 của bệnh nhân này bao nhiêu?"
 {"intent": "scoring", "drugs": [], "procedures": []}
+Câu hỏi: "Tình trạng hiện tại của bệnh nhân thế nào?"
+{"intent": "summary", "drugs": [], "procedures": []}
 Câu hỏi: "Kết quả bóng đá tối qua thế nào?"
 {"intent": "off_topic", "drugs": [], "procedures": []}
 ]]></system>

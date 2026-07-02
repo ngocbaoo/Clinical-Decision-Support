@@ -11,11 +11,12 @@ from rag.query_router import keyword_route, parse_json_loose  # noqa: E402
 from rag.safety import (check_allergies, check_contraindications,  # noqa: E402
                         check_drug_interactions, format_alerts)
 from rag import safety as safety_mod  # noqa: E402
-from rag.openfda import find_mention  # noqa: E402
+from rag.openfda import find_mention, to_fda_generic  # noqa: E402
 from rag.context_builder import build_messages, summarize_patient  # noqa: E402
 from rag.config import DISCLAIMER  # noqa: E402
 from rag.verifier import (decide, verify_answer, _is_effective_safety,  # noqa: E402
-                          _evidence_matches, _evidence_grounded)
+                          _evidence_matches, _evidence_grounded,
+                          _alert_confirms, HEDGE_PREFIX)
 from rag.logging_utils import log_request  # noqa: E402
 from rag.fusion import (rrf_fuse, comorbidity_fuse,  # noqa: E402
                         comorbidity_names, comorbidity_queries)
@@ -267,6 +268,30 @@ def test_generate_scoring_intent_allows_uncited():
                       '"insufficient": false}')
     resp = generate("q", "scoring", [], {}, {}, [], chat)
     assert not resp["fallback"]
+
+
+def test_keyword_route_summary():
+    assert keyword_route("tình trạng bệnh nhân hiện tại thế nào")["intent"] == "summary"
+    assert keyword_route("tóm tắt thông tin bệnh nhân")["intent"] == "summary"
+
+
+def test_generate_summary_intent_returns_patient_readout_no_llm():
+    # A patient-status question is answered deterministically from the record:
+    # no LLM call, no guideline, no citations, not a fallback.
+    chat = _mock_chat("")
+    ctx = {
+        "patient": {"name": "Bùi Thị Lan", "gender": "female", "age": 98},
+        "conditions": [{"name_vi": "Nhiễm khuẩn huyết", "icd10_code": "A41.9"}],
+        "medications": [{"name": "Ceftriaxone", "dose": "2g"}],
+        "allergies": [], "observations": {},
+    }
+    resp = generate("tình trạng bệnh nhân thế nào?", "summary", [], ctx, {}, [], chat)
+    chat.chat.assert_not_called()
+    assert not resp["fallback"]
+    assert resp["citations"] == []
+    assert "Bùi Thị Lan" in resp["answer"]
+    assert "Nhiễm khuẩn huyết" in resp["answer"]
+    assert "Ceftriaxone" in resp["answer"]
 
 
 def test_generate_alerts_prepended():
@@ -705,3 +730,58 @@ def test_apply_gate_prepends_banner_and_raises_alert():
 def test_apply_gate_noop_on_fallback():
     resp = {"answer": "Không đủ thông tin…", "alerts": [], "fallback": True}
     assert apply_comorbidity_gate(resp, _LIVER_CTX) is resp
+
+
+# ---- Layer 1: drug-name normalization (INN/VN -> FDA generic) --------------
+def test_to_fda_generic_maps_inn_and_passes_through():
+    assert to_fda_generic("Paracetamol") == "acetaminophen"
+    assert to_fda_generic("adrenaline") == "epinephrine"
+    assert to_fda_generic("Noradrenaline") == "norepinephrine"
+    assert to_fda_generic("salbutamol") == "albuterol"
+    assert to_fda_generic("Vancomycin") == "vancomycin"   # already US form -> unchanged
+    assert to_fda_generic("không-phải-thuốc") == "khong-phai-thuoc"  # unknown -> folded passthrough
+
+
+# ---- Layer 2: deterministic alert -> verifier bridge -----------------------
+def test_alert_confirms_matches_patient_alert():
+    alerts = [{"type": "allergy", "drug": "Amoxicillin", "allergen": "Penicillin"}]
+    assert _alert_confirms("Không nên dùng Amoxicillin cho bệnh nhân này", alerts)
+    assert _alert_confirms("Bệnh nhân dị ứng Penicillin, tránh nhóm beta-lactam", alerts)
+    assert not _alert_confirms("Bù dịch tinh thể 30ml/kg", alerts)
+    assert not _alert_confirms("bất kỳ điều gì", None)
+
+
+def test_verify_patient_safety_claim_confirmed_by_alert_skips_backend():
+    chat = MagicMock()  # must NOT be called: a deterministic alert already confirms the claim
+    claims = [{"text": "Không nên dùng Amoxicillin vì bệnh nhân dị ứng Penicillin",
+               "evidence": "", "citation": None}]
+    alerts = [{"type": "allergy", "drug": "Amoxicillin", "allergen": "Penicillin"}]
+    res = verify_answer(claims, [], "Dị ứng: Penicillin", "contraindication",
+                        backend="llm", verifier_chat=chat, alerts=alerts)
+    assert res["status"] == "ok" and res["action"] == "keep"
+    assert len(res["kept_claims"]) == 1
+    assert not res["kept_claims"][0]["text"].startswith(HEDGE_PREFIX)  # confirmed, not hedged
+    chat.chat.assert_not_called()
+
+
+# ---- Layer 3: hedge unverified patient-derived safety (don't kill answer) ---
+def test_decide_patient_safety_unverified_is_hedged_not_fallback():
+    # citation=None safety caution (unconfirmed) + a supported guideline claim:
+    # keep both, the caution softened with the hedge prefix — NOT a whole-answer fallback.
+    claims = [_cl("Bù dịch tinh thể", citation=1),
+              _cl("Không nên dùng paracetamol do suy gan", citation=None)]
+    verdicts = [_v("supported"), _v("neutral", is_safety=True)]
+    d = decide(claims, verdicts, "general")
+    assert d["action"] == "keep" and d["branch"] == "hedge"
+    assert d["hedged_count"] == 1
+    texts = [c["text"] for c in d["kept_claims"]]
+    assert any(t.startswith(HEDGE_PREFIX) for t in texts)
+    assert "Bù dịch tinh thể" in texts
+
+
+def test_decide_guideline_cited_safety_still_fail_closed():
+    # a safety claim that CITES a chunk but is unsupported (possibly fabricated guideline) ->
+    # still fail-closed, the dangerous case is preserved.
+    d = decide([_cl("Chống chỉ định dùng thuốc X", citation=1)],
+               [_v("neutral", is_safety=True)], "general")
+    assert d["action"] == "fallback" and d["fallback_reason"] == "verifier_unsupported_safety"
